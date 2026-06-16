@@ -14,7 +14,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$SCRIPT_DIR"
 VAULT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)/test-vault"
-PLUGIN_ID="bamboo-darts"
+PLUGIN_ID="atomic-notes-extractor"
 PLUGIN_DEST="$VAULT_DIR/.obsidian/plugins/$PLUGIN_ID"
 
 # ─── 颜色 ───
