@@ -36,8 +36,7 @@ export function validateAtomicNote(note: AtomicNote): { valid: boolean; issues: 
   if (note.content.length < MIN_NOTE_CONTENT_LENGTH) {
     issues.push('内容过短，可能缺乏信息密度');
   }
-  // 标准 6: 来源（不再要求——用户选择不输出来源信息）
-  // 已移除来源检查
+  // 标准 5: 用自己的话写（已移除标准 6"来源"，不再做来源检查）
 
   // 只有内容过短是硬性失败，标题为空也是硬性失败
   const hasHardIssue = note.content.length < MIN_NOTE_CONTENT_LENGTH
