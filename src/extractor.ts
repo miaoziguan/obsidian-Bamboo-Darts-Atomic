@@ -8,15 +8,15 @@
  * - Phase 6: 笔记复查（可选）
  */
 
-import { requestUrl } from 'obsidian';
+import { requestUrl, Vault } from 'obsidian';
 import { runGateChecks } from './utils/gate-rules';
 import { parseAINoteOutput, AtomicNote, validateAtomicNote, ensureTags } from './utils/notes-standards';
-import { crossCheckBatch } from './deduplicator';
+import { crossCheckBatch, checkAgainstVaultDetailed, VaultMatchInfo } from './deduplicator';
 import { buildSystemPrompt, buildExtractionPrompt } from './extraction/tag-preferences';
 import { verifyFacts, verifyData } from './extraction/fact-checker';
 import { reviewNotes, ReviewConfig } from './review/note-reviewer';
 import { extractUrlContent } from './extraction/url-extractor';
-import { AI_TEMPERATURE } from './constants';
+import { AI_TEMPERATURE, INPUT_TRUNCATE_LENGTH } from './constants';
 
 interface ExtractorConfig {
   deepseekApiKey: string;
@@ -33,6 +33,10 @@ interface ExtractorConfig {
   reviewApiUrl: string;
   reviewApiKey: string;
   signal?: AbortSignal;
+  // 知识库去重相关
+  vault?: Vault;
+  targetFolder?: string;
+  enableVaultDedup?: boolean;
 }
 
 const DEFAULT_CONFIG: ExtractorConfig = {
@@ -49,6 +53,7 @@ const DEFAULT_CONFIG: ExtractorConfig = {
   reviewModel: '',
   reviewApiUrl: '',
   reviewApiKey: '',
+  enableVaultDedup: true,
 };
 
 // ─── Step 日志工具 ───
@@ -235,6 +240,18 @@ export interface ExtractionResult {
   error?: string;
   factCheckSummary?: { verified: number; doubtful: number; unverified: number };
   dataCheckSummary?: { consistent: number; deviation: number; unverifiable: number };
+  vaultDedupResult?: DedupResult;
+  vaultDedupPending?: PendingDuplicate[];
+}
+
+/** 中相似度疑似重复，需用户确认 */
+export interface PendingDuplicate {
+  similarity: number;
+  matchedNote: string;
+  matchedContent: string;
+  newNoteIndex: number;
+  newNoteTitle: string;
+  newNoteContent: string;
 }
 
 export async function runExtraction(
@@ -260,6 +277,11 @@ export async function runExtraction(
 
   const content = readResult.content!;
 
+  // 统一截断：Phase 3/5/5b 使用相同的输入，避免核查盲区
+  const truncatedContent = content.length > INPUT_TRUNCATE_LENGTH
+    ? content.slice(0, INPUT_TRUNCATE_LENGTH)
+    : content;
+
   // Phase 2: 质量门控
   addStep(steps, 'Phase 2: 质量门控', 'success', '开始检查...');
   const gateResult = runGateChecks(content);
@@ -279,7 +301,7 @@ export async function runExtraction(
 
   // Phase 3: 提炼原子笔记（AI 模式）
   addStep(steps, 'Phase 3: 提炼原子笔记', 'success', '正在调用 DeepSeek API...');
-  const extractResult = await extractAtomicNotes(content, config);
+  const extractResult = await extractAtomicNotes(truncatedContent, config);
 
   if (!extractResult.success) {
     updateLastStep(steps, 'failed', extractResult.error || '提炼失败');
@@ -299,12 +321,78 @@ export async function runExtraction(
     return { success: false, steps, error: '未提炼出任何符合标准的原子笔记', notes: [] };
   }
 
+  // Phase 4b: 知识库去重（可选）
+  let vaultDedupResult: DedupResult | undefined;
+  let vaultDedupPending: PendingDuplicate[] = [];
+
+  if (fullConfig.enableVaultDedup && fullConfig.vault) {
+    addStep(steps, 'Phase 4b: 知识库去重', 'success', '正在与已有笔记比对...');
+
+    const matchInfos: VaultMatchInfo[] = await checkAgainstVaultDetailed(
+      fullConfig.vault,
+      notes,
+      fullConfig.targetFolder || ''
+    );
+
+    const HIGH_SIM_THRESHOLD = 0.8;
+    const MID_SIM_THRESHOLD = 0.6;
+
+    const keptNotes: AtomicNote[] = [];
+    const highDupCount = matchInfos.filter(m => m.bestMatch && m.bestMatch.similarity >= HIGH_SIM_THRESHOLD).length;
+    const midDupCount = matchInfos.filter(m => m.bestMatch && m.bestMatch.similarity >= MID_SIM_THRESHOLD && m.bestMatch.similarity < HIGH_SIM_THRESHOLD).length;
+
+    for (const info of matchInfos) {
+      if (!info.bestMatch) {
+        // 无匹配，保留
+        keptNotes.push(info.note);
+      } else if (info.bestMatch.similarity >= HIGH_SIM_THRESHOLD) {
+        // 高相似度：自动去重，跳过
+      } else if (info.bestMatch.similarity >= MID_SIM_THRESHOLD) {
+        // 中相似度：保留笔记，但标记为待确认
+        keptNotes.push(info.note);
+        vaultDedupPending.push({
+          similarity: info.bestMatch.similarity,
+          matchedNote: info.bestMatch.path,
+          matchedContent: info.bestMatch.content,
+          newNoteIndex: info.noteIndex,
+          newNoteTitle: info.note.title,
+          newNoteContent: info.note.content,
+        });
+      } else {
+        // 低相似度：保留
+        keptNotes.push(info.note);
+      }
+    }
+
+    notes = keptNotes;
+
+    // 构建 DedupResult 用于兼容展示
+    vaultDedupResult = {
+      uniqueNotes: keptNotes,
+      removedCount: highDupCount,
+      duplicates: matchInfos
+        .filter(m => m.bestMatch && m.bestMatch.similarity >= MID_SIM_THRESHOLD)
+        .map(m => ({
+          isDuplicate: true,
+          similarity: m.bestMatch!.similarity,
+          matchedNote: m.bestMatch!.path,
+          matchedContent: m.bestMatch!.content,
+        })),
+    };
+
+    updateLastStep(steps, 'success',
+      `知识库去重：去除 ${highDupCount} 条高相似度重复，${midDupCount} 条待确认`
+    );
+  } else {
+    addStep(steps, 'Phase 4b: 知识库去重', 'skipped', '未启用或无 Vault，跳过');
+  }
+
   // Phase 5: 事实核查（可选）
   let factCheckSummary: { verified: number; doubtful: number; unverified: number } | undefined;
 
   if (fullConfig.factCheck) {
     addStep(steps, 'Phase 5: 事实核查', 'success', '正在核实关键事实...');
-    const factResult = await verifyFacts(content, notes, {
+    const factResult = await verifyFacts(truncatedContent, notes, {
       deepseekApiKey: fullConfig.deepseekApiKey,
       deepseekApiUrl: fullConfig.deepseekApiUrl,
       model: fullConfig.model,
@@ -342,7 +430,7 @@ export async function runExtraction(
 
   if (fullConfig.enableDataCheck) {
     addStep(steps, 'Phase 5b: 数据核查', 'success', '正在核查数据准确性...');
-    const dataResult = await verifyData(content, notes, {
+    const dataResult = await verifyData(truncatedContent, notes, {
       deepseekApiKey: fullConfig.deepseekApiKey,
       deepseekApiUrl: fullConfig.deepseekApiUrl,
       model: fullConfig.model,
@@ -397,5 +485,13 @@ export async function runExtraction(
     addStep(steps, 'Phase 6: 笔记复查', 'skipped', '未启用，跳过');
   }
 
-  return { success: true, notes, steps, factCheckSummary, dataCheckSummary };
+  return {
+    success: true,
+    notes,
+    steps,
+    factCheckSummary,
+    dataCheckSummary,
+    vaultDedupResult,
+    vaultDedupPending: vaultDedupPending.length > 0 ? vaultDedupPending : undefined,
+  };
 }

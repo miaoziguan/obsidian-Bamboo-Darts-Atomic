@@ -36,6 +36,17 @@ interface DedupResult {
   duplicates: DuplicateInfo[];
 }
 
+/** 单条笔记与知识库的匹配结果 */
+export interface VaultMatchInfo {
+  note: AtomicNote;
+  noteIndex: number;
+  bestMatch: {
+    similarity: number;
+    path: string;
+    content: string;
+  } | null;
+}
+
 // ─── Dedup Cache ───
 
 const DEDUP_CACHE_TTL = 5 * 60 * 1000; // 5 minutes, same as similarity-matrix
@@ -44,6 +55,7 @@ interface CachedNote {
   path: string;
   content: string;
   keywords: Set<string>;
+  titleKeywords?: Set<string>; // 标题关键词（用于加权计算）
   mtime: number;
 }
 
@@ -263,4 +275,108 @@ function jaccardSimilarity(words1: Set<string>, words2: Set<string>): number {
   const intersection = new Set([...words1].filter(w => words2.has(w)));
   const union = new Set([...words1, ...words2]);
   return intersection.size / union.size;
+}
+
+/**
+ * 知识库去重比对（详细版）
+ * 返回每条笔记与知识库的最佳匹配信息，由调用方分类处理
+ *
+ * 相似度算法改进：
+ * - 标题相似度权重 60%，内容相似度权重 40%
+ * - 短笔记（<100 字）使用更低阈值
+ *
+ * 返回结果包含所有笔记的匹配情况：
+ * - bestMatch.similarity >= 0.8：高相似度，建议自动去重
+ * - bestMatch.similarity >= 0.6：中相似度，建议用户确认
+ * - bestMatch.similarity < 0.6 或 null：低相似度，视为不重复
+ */
+export async function checkAgainstVaultDetailed(
+  vault: Vault,
+  notes: AtomicNote[],
+  targetFolder: string,
+  cacheManager: DedupCacheManager = defaultDedupCache
+): Promise<VaultMatchInfo[]> {
+  // 读取目标文件夹中的所有笔记（优先使用缓存）
+  let existingNotes: CachedNote[];
+  const cached = cacheManager.get(targetFolder, vault);
+
+  if (cached) {
+    existingNotes = cached;
+  } else {
+    const allFiles = vault.getMarkdownFiles();
+    const existingFiles = targetFolder
+      ? allFiles.filter(file => file.path.startsWith(targetFolder))
+      : allFiles;
+
+    existingNotes = [];
+    for (let i = 0; i < existingFiles.length; i += DEDUP_BATCH_SIZE) {
+      const batch = existingFiles.slice(i, i + DEDUP_BATCH_SIZE);
+      const contents = await Promise.all(batch.map(f => vault.read(f)));
+      for (let j = 0; j < batch.length; j++) {
+        const file = batch[j] as TFile;
+        const content = contents[j];
+        // 提取标题（第一行非空文本）
+        const titleMatch = content.match(/^#\s+(.+)$/m) || content.match(/^(.+)$/);
+        const title = titleMatch ? titleMatch[1].trim() : '';
+        existingNotes.push({
+          path: file.path,
+          content,
+          keywords: extractKeywords(content),
+          titleKeywords: title ? extractKeywords(title) : undefined,
+          mtime: file.stat.mtime,
+        });
+      }
+    }
+    cacheManager.set(existingNotes);
+  }
+
+  const LENGTH_RATIO_THRESHOLD = 0.3;
+  const TITLE_WEIGHT = 0.6;
+  const CONTENT_WEIGHT = 0.4;
+  const SHORT_NOTE_LENGTH = 100;
+  const results: VaultMatchInfo[] = [];
+
+  for (let idx = 0; idx < notes.length; idx++) {
+    const note = notes[idx];
+    const contentKeywords = extractKeywords(note.content);
+    const titleKeywords = extractKeywords(note.title);
+    const length = note.content.length;
+    let bestMatch: VaultMatchInfo['bestMatch'] = null;
+
+    for (const existing of existingNotes) {
+      // 快速预过滤：长度差异过大则跳过
+      if (Math.abs(length - existing.content.length) / Math.max(length, existing.content.length) > LENGTH_RATIO_THRESHOLD) {
+        continue;
+      }
+
+      // 内容相似度
+      const contentSim = jaccardSimilarity(contentKeywords, existing.keywords);
+
+      // 标题相似度（如果双方都有标题关键词）
+      let titleSim = 0;
+      if (titleKeywords.size >= DEDUP_MIN_KEYWORDS && existing.titleKeywords && existing.titleKeywords.size >= DEDUP_MIN_KEYWORDS) {
+        titleSim = jaccardSimilarity(titleKeywords, existing.titleKeywords);
+      }
+
+      // 综合相似度 = 标题 60% + 内容 40%
+      const combinedSim = titleSim * TITLE_WEIGHT + contentSim * CONTENT_WEIGHT;
+
+      if (!bestMatch || combinedSim > bestMatch.similarity) {
+        bestMatch = {
+          similarity: combinedSim,
+          path: existing.path,
+          content: existing.content.slice(0, 200) + (existing.content.length > 200 ? '...' : ''),
+        };
+      }
+    }
+
+    // 动态阈值：短笔记使用更低阈值
+    if (bestMatch && length < SHORT_NOTE_LENGTH) {
+      bestMatch.similarity = Math.min(bestMatch.similarity * 1.2, 1.0); // 短笔记相似度放大 20%
+    }
+
+    results.push({ note, noteIndex: idx, bestMatch });
+  }
+
+  return results;
 }

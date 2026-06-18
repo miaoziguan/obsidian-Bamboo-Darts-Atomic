@@ -1,10 +1,10 @@
 {
   "id": "atomic-notes-extractor",
   "name": "Bamboo Darts",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "minAppVersion": "1.0.0",
-  "description": "Extract atomic notes from your vault using AI.",
+  "description": "从文章/链接/选中文本中提炼原子笔记，自动去重后存入知识库",
   "author": "羽鳞君",
-  "authorUrl": "",
+  "authorUrl": "https://github.com/miaoziguan",
   "isDesktopOnly": false
 }

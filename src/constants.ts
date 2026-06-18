@@ -54,5 +54,5 @@ export const MAX_DATA_POINTS_PER_CHECK = 30;
 /** 事实核查：单次最大事实数量 */
 export const MAX_FACTS_PER_CHECK = 20;
 
-/** 原文截断阈值 */
-export const ORIGINAL_TEXT_CHUNK_SIZE = 4000;
+/** 原文截断阈值（与 INPUT_TRUNCATE_LENGTH 对齐，避免 Phase 5 核查盲区） */
+export const ORIGINAL_TEXT_CHUNK_SIZE = 10000;

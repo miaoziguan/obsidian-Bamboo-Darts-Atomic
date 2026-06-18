@@ -5,7 +5,7 @@
 
 import { Modal, App, Setting } from 'obsidian';
 import { AtomicNote } from '../utils/notes-standards';
-import { ExtractionResult } from '../extractor';
+import { ExtractionResult, PendingDuplicate } from '../extractor';
 
 interface DedupResult {
   uniqueNotes: AtomicNote[];
@@ -30,6 +30,8 @@ export class ResultModal extends Modal {
   private onSave: (notes: AtomicNote[]) => Promise<void>;
   private selectedNotes: Set<number> = new Set();
   private countEl: HTMLElement | null = null;
+  /** 用户确认保留的疑似重复索引 */
+  private confirmedPending: Set<number> = new Set();
 
   constructor(
     app: App,
@@ -60,6 +62,11 @@ export class ResultModal extends Modal {
       // 去重报告
       if (this.dedupResult) {
         this.renderDedupReport(contentEl);
+      }
+
+      // 疑似重复确认（Phase 4b 中相似度笔记）
+      if (this.result.vaultDedupPending && this.result.vaultDedupPending.length > 0) {
+        this.renderPendingDuplicates(contentEl);
       }
 
       // 事实核查摘要
@@ -143,6 +150,124 @@ export class ResultModal extends Modal {
     reportEl.createEl('p', {
       text: `最终保存 ${this.dedupResult.uniqueNotes.length} 条笔记`,
       attr: { style: 'font-weight:600;color:var(--text-accent)' },
+    });
+  }
+
+  /** 疑似重复确认 UI（中相似度 60-80%） */
+  private renderPendingDuplicates(container: HTMLElement) {
+    const pending = this.result.vaultDedupPending;
+    if (!pending || pending.length === 0) return;
+
+    const section = container.createEl('div', { cls: 'atomic-notes-pending-dedup' });
+    section.createEl('div', { text: '⚠️ 疑似重复笔记（需确认）', cls: 'atomic-notes-section-header' });
+
+    section.createEl('p', {
+      text: `发现 ${pending.length} 条笔记与知识库已有笔记相似度较高（60%-80%），请逐一确认是否保留：`,
+      attr: { style: 'color:var(--text-muted);font-size:13px' },
+    });
+
+    for (const item of pending) {
+      const card = section.createEl('div', {
+        attr: {
+          style: 'border:1px solid var(--background-modifier-border);border-radius:8px;padding:12px;margin-bottom:10px;background:var(--background-secondary)',
+        },
+      });
+
+      // 相似度提示
+      const simPercent = (item.similarity * 100).toFixed(1);
+      card.createEl('div', {
+        text: `相似度 ${simPercent}%`,
+        attr: { style: 'font-size:12px;color:var(--text-accent);font-weight:600;margin-bottom:6px' },
+      });
+
+      // 新笔记信息
+      const newNoteDiv = card.createEl('div');
+      newNoteDiv.createEl('span', {
+        text: '新笔记：',
+        attr: { style: 'font-weight:600;font-size:13px' },
+      });
+      newNoteDiv.createEl('span', {
+        text: item.newNoteTitle,
+        attr: { style: 'font-size:13px' },
+      });
+      const newPreview = item.newNoteContent.slice(0, 120) + (item.newNoteContent.length > 120 ? '...' : '');
+      card.createEl('div', {
+        text: newPreview,
+        attr: { style: 'font-size:12px;color:var(--text-muted);margin:4px 0 8px' },
+      });
+
+      // 已有笔记信息
+      const existingDiv = card.createEl('div');
+      existingDiv.createEl('span', {
+        text: '已有笔记：',
+        attr: { style: 'font-weight:600;font-size:13px' },
+      });
+      existingDiv.createEl('span', {
+        text: item.matchedNote,
+        attr: { style: 'font-size:13px' },
+      });
+      card.createEl('div', {
+        text: item.matchedContent,
+        attr: { style: 'font-size:12px;color:var(--text-muted);margin:4px 0 8px' },
+      });
+
+      // 操作按钮
+      const btnRow = card.createEl('div', {
+        attr: { style: 'display:flex;gap:8px;justify-content:flex-end' },
+      });
+
+      const keepBtn = btnRow.createEl('button', {
+        text: '保留新笔记',
+        attr: { style: 'font-size:12px;padding:4px 12px;cursor:pointer' },
+      });
+      keepBtn.addEventListener('click', () => {
+        this.confirmedPending.add(item.newNoteIndex);
+        card.style.opacity = '0.5';
+        keepBtn.setText('已保留');
+        keepBtn.setAttribute('disabled', 'true');
+        discardBtn.setAttribute('disabled', 'true');
+      });
+
+      const discardBtn = btnRow.createEl('button', {
+        text: '丢弃新笔记',
+        attr: { style: 'font-size:12px;padding:4px 12px;cursor:pointer' },
+      });
+      discardBtn.addEventListener('click', () => {
+        this.confirmedPending.delete(item.newNoteIndex);
+        this.selectedNotes.delete(item.newNoteIndex);
+        card.style.opacity = '0.5';
+        discardBtn.setText('已丢弃');
+        discardBtn.setAttribute('disabled', 'true');
+        keepBtn.setAttribute('disabled', 'true');
+        this.updateSelectionCount();
+      });
+    }
+
+    // 一键操作
+    const quickActions = section.createEl('div', {
+      attr: { style: 'display:flex;gap:8px;margin-top:8px' },
+    });
+    const keepAllBtn = quickActions.createEl('button', {
+      text: '全部保留',
+      attr: { style: 'font-size:12px;padding:4px 12px;cursor:pointer' },
+    });
+    keepAllBtn.addEventListener('click', () => {
+      for (const item of pending) {
+        this.confirmedPending.add(item.newNoteIndex);
+      }
+      this.renderPendingDuplicates(container);
+    });
+
+    const discardAllBtn = quickActions.createEl('button', {
+      text: '全部丢弃',
+      attr: { style: 'font-size:12px;padding:4px 12px;cursor:pointer' },
+    });
+    discardAllBtn.addEventListener('click', () => {
+      for (const item of pending) {
+        this.selectedNotes.delete(item.newNoteIndex);
+      }
+      this.renderPendingDuplicates(container);
+      this.updateSelectionCount();
     });
   }
 

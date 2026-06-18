@@ -6,3 +6,18 @@ node_modules/
 *_clean
 *temp_check
 sync.sh
+
+# macOS
+.DS_Store
+
+# Release artifacts (not source code)
+*.zip
+release-notes-*.md
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Environment
+.env

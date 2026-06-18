@@ -7,7 +7,6 @@
 import { Plugin, Notice, Editor, MarkdownView, Menu, MenuItem } from 'obsidian';
 import { AtomicNotesSettingTab, PluginSettings, DEFAULT_SETTINGS } from './ui/setting-tab';
 import { runExtraction } from './extractor';
-import { checkAgainstVault } from './deduplicator';
 import { stripImageNoise } from './utils/clipboard';
 import { saveNotes } from './storage';
 import { AtomicNote } from './utils/notes-standards';
@@ -223,6 +222,9 @@ export default class AtomicNotesPlugin extends Plugin {
           reviewApiUrl: this.settings.reviewApiUrl,
           reviewApiKey: this.settings.reviewApiKey,
           signal: this._abortController.signal,
+          vault: this.app.vault,
+          targetFolder: this.settings.targetFolder,
+          enableVaultDedup: true,
         }
       );
 
@@ -233,23 +235,14 @@ export default class AtomicNotesPlugin extends Plugin {
 
       new Notice(`提炼完成，共 ${result.notes.length} 条原子笔记`);
 
-      new Notice('正在与知识库比对去重...');
-      const dedupResult = await checkAgainstVault(
-        this.app.vault,
-        result.notes,
-        this.settings.targetFolder
-      );
-
-      new Notice(`去重完成，将保存 ${dedupResult.uniqueNotes.length} 条笔记`);
-
       if (this.settings.autoSave) {
         new Notice('正在保存到知识库...');
-        await this.saveAndBacklink(input, dedupResult.uniqueNotes);
+        await this.saveAndBacklink(input, result.notes);
       } else {
         new ResultModal(
           this.app,
-          { ...result, notes: dedupResult.uniqueNotes },
-          dedupResult,
+          result,
+          result.vaultDedupResult,
           async (notes) => {
             await this.saveAndBacklink(input, notes);
           }

@@ -64,18 +64,52 @@ function extractFacts(content: string): FactItem[] {
 /**
  * 在原文中查找事实声明的位置
  * 用于判断事实属于原文的哪个段落
+ *
+ * 策略：精确匹配 → 关键片段匹配 → 关键词锚点匹配
+ * AI 改写后的文本无法精确匹配，通过提取数字/日期/专有名词等锚点在原文中定位
  */
 function locateFactPosition(factText: string, originalContent: string): number {
-  // 尝试精确匹配
+  // 1. 精确匹配
   const exactIndex = originalContent.indexOf(factText);
   if (exactIndex >= 0) return exactIndex;
 
-  // 尝试匹配关键片段（前 50 字符）
+  // 2. 关键片段匹配（前 50 字符）
   const keyFragment = factText.slice(0, 50);
   const fragmentIndex = originalContent.indexOf(keyFragment);
   if (fragmentIndex >= 0) return fragmentIndex;
 
-  // 无法定位，返回 -1
+  // 3. 关键词锚点匹配：提取事实中的数字、日期、专有名词，在原文中搜索
+  // 提取锚点关键词（数字、百分比、日期、带特定后缀的中文词组）
+  const anchors: string[] = [];
+
+  // 数字+单位/百分比
+  const numberMatches = factText.match(/\d+\.?\d*\s*(?:%|亿|万|千|百|个|家|项|次|人|年|月|日)/g);
+  if (numberMatches) anchors.push(...numberMatches);
+
+  // 日期格式
+  const dateMatches = factText.match(/\d{4}[-\/年]\d{1,2}[-\/月]\d{1,2}/g);
+  if (dateMatches) anchors.push(...dateMatches);
+
+  // 专有名词（2-4 字 + 机构后缀）
+  const entityMatches = factText.match(/[\u4e00-\u9fff]{2,4}(?:公司|机构|大学|学院|集团|基金|协会|部门|委员会|平台|系统|框架|协议|标准)/g);
+  if (entityMatches) anchors.push(...entityMatches);
+
+  // 按长度降序排列，优先匹配最长的锚点（更精确）
+  anchors.sort((a, b) => b.length - a.length);
+
+  for (const anchor of anchors) {
+    const anchorIndex = originalContent.indexOf(anchor);
+    if (anchorIndex >= 0) return anchorIndex;
+  }
+
+  // 4. 降级：提取前 20 字符中的连续中文片段
+  const shortFragment = factText.slice(0, 20).match(/[\u4e00-\u9fff]{3,}/);
+  if (shortFragment) {
+    const shortIndex = originalContent.indexOf(shortFragment[0]);
+    if (shortIndex >= 0) return shortIndex;
+  }
+
+  // 无法定位
   return -1;
 }
 
@@ -102,7 +136,7 @@ function groupFactsByPosition(
   });
 
   // 分组策略：
-  // - 位置已知的事实：按原文段落分组（每 4000 字符一段）
+  // - 位置已知的事实：按原文段落分组（每 10000 字符一段）
   // - 位置未知的事实：放入最后一组（可能来自被截断部分）
   let currentGroup: FactWithContext[] = [];
   let currentStart = 0;
@@ -223,69 +257,49 @@ export async function verifyFacts(
   );
 
   const contentLength = originalContent.length;
-  const needsChunking = contentLength > ORIGINAL_TEXT_CHUNK_SIZE;
 
   try {
     let allVerifications: VerificationItem[] = [];
 
-    if (!needsChunking || allFacts.length <= MAX_FACTS_PER_CHECK) {
-      // 简单场景：原文不长或事实数量少，单次核查
-      const factsList = allFacts.map((f, i) => `${i}. [${f.fact.text}]`).join('\n');
-      const isTruncated = contentLength > ORIGINAL_TEXT_CHUNK_SIZE;
-      const originalChunk = isTruncated
-        ? originalContent.slice(0, ORIGINAL_TEXT_CHUNK_SIZE) + '\n\n[原文已被截断，仅显示前 4000 字符]'
-        : originalContent;
+    // 始终使用分段核查，确保每条事实都能找到对应原文段落
+    const groups = groupFactsByPosition(allFacts, originalContent);
+    const totalGroups = groups.length;
 
-      const verifications = await performSingleCheck(originalChunk, factsList, isTruncated, config);
+    for (let gIdx = 0; gIdx < groups.length; gIdx++) {
+      const group = groups[gIdx];
 
-      // Map AI results back to notes
-      for (const v of verifications) {
-        const fact = allFacts[v.index];
-        if (fact) {
-          allVerifications.push({ ...v, noteIndex: fact.noteIndex });
-        }
+      // 进度提示
+      if (totalGroups > 1) {
+        new Notice(`正在核查第 ${gIdx + 1}/${totalGroups} 段原文（共 ${group.facts.length} 条声明）...`);
       }
-    } else {
-      // 复杂场景：原文很长且事实数量多，分段核查
-      const groups = groupFactsByPosition(allFacts, originalContent);
-      const totalGroups = groups.length;
 
-      for (let gIdx = 0; gIdx < groups.length; gIdx++) {
-        const group = groups[gIdx];
+      // 提取该段落对应的原文片段
+      const chunk = originalContent.slice(group.start, group.end);
+      const isTruncated = group.end < contentLength;
+      const chunkWithHint = isTruncated
+        ? chunk + '\n\n[原文片段，位置：' + group.start + '-' + group.end + '字符]'
+        : chunk;
 
-        // 进度提示
-        if (totalGroups > 1) {
-          new Notice(`正在核查第 ${gIdx + 1}/${totalGroups} 段原文（共 ${group.facts.length} 条声明）...`);
-        }
+      // 构建该组事实的列表（使用原始索引）
+      const factsList = group.facts
+        .map((f, i) => `${i}. [${f.fact.text}]`)
+        .join('\n');
 
-        // 提取该段落对应的原文片段
-        const chunk = originalContent.slice(group.start, group.end);
-        const isTruncated = group.end < contentLength;
-        const chunkWithHint = isTruncated
-          ? chunk + '\n\n[原文片段，位置：' + group.start + '-' + group.end + '字符]'
-          : chunk;
+      const verifications = await performSingleCheck(chunkWithHint, factsList, isTruncated, config);
 
-        // 构建该组事实的列表（使用原始索引）
-        const factsList = group.facts
-          .map((f, i) => `${i}. [${f.fact.text}]`)
-          .join('\n');
-
-        const verifications = await performSingleCheck(chunkWithHint, factsList, isTruncated, config);
-
-        // Map results back using original fact indices
-        for (const v of verifications) {
-          const fact = group.facts[v.index];
-          if (fact) {
-            // 使用 allFacts 中的原始索引
-            const originalIndex = allFacts.findIndex(
-              f => f.noteIndex === fact.noteIndex && f.factIndex === fact.factIndex
-            );
-            allVerifications.push({
-              ...v,
-              index: originalIndex >= 0 ? originalIndex : v.index,
-              noteIndex: fact.noteIndex,
-            });
-          }
+      // Map results back using original fact indices
+      for (const v of verifications) {
+        const fact = group.facts[v.index];
+        if (fact) {
+          // 使用 allFacts 中的原始索引
+          const originalIndex = allFacts.findIndex(
+            f => f.noteIndex === fact.noteIndex && f.factIndex === fact.factIndex
+          );
+          allVerifications.push({
+            ...v,
+            index: originalIndex >= 0 ? originalIndex : v.index,
+            noteIndex: fact.noteIndex,
+          });
         }
       }
     }
