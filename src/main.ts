@@ -17,6 +17,18 @@ import { computeSourceHash, getSourceTitle, addHistoryEntry, findPreviousExtract
 import { insertBacklinks } from './services/backlink-service';
 import { ProgressCallback, ProgressEvent } from './extraction/progress';
 
+/** 友好化常见的 API 错误信息 */
+function friendlyError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  if (raw.includes('401') || raw.includes('Unauthorized')) return 'API Key 无效或已过期，请在设置中更新';
+  if (raw.includes('429') || raw.includes('Too Many Requests')) return '请求过于频繁或额度不足，请稍后重试';
+  if (raw.includes('402')) return 'API 额度不足，请检查账户余额';
+  if (raw.includes('500') || raw.includes('502') || raw.includes('503')) return 'API 服务暂时不可用，请稍后重试';
+  if (raw.includes('timeout') || raw.includes('ETIMEDOUT') || raw.includes('ECONNREFUSED')) return '网络连接超时，请检查 API URL 或网络设置';
+  if (raw.includes('Failed to fetch') || raw.includes('network')) return '网络连接失败，请检查网络或 API URL';
+  return raw;
+}
+
 export default class AtomicNotesPlugin extends Plugin {
   settings: PluginSettings;
   _isExtracting: boolean = false;
@@ -340,25 +352,26 @@ export default class AtomicNotesPlugin extends Plugin {
           this.showForceExtractConfirm(input, result.error || '内容质量不达标');
           return;
         } else {
-          new Notice(`提炼失败：${result.error}`);
+          // 其他错误 → 弹错误弹窗
+          this.showErrorModal(input, friendlyError(result.error), opts, false);
         }
         return;
       }
       new Notice(`提炼完成，共 ${result.notes.length} 条原子笔记`);
       if (this.settings.autoSave) {
+        // autoSave 统一行为：无论是否有疑似重复，都自动保存
+        await this.saveAndBacklink(input, result.notes);
         if (result.duplicateHints && result.duplicateHints.length > 0) {
-          new Notice(`检测到 ${new Set(result.duplicateHints.map(h => h.noteIndex)).size} 篇疑似重复笔记，请确认后保存`);
-          new ResultModal(this.app, result, result.vaultDedupResult, async (notes) => { await this.saveAndBacklink(input, notes); }).open();
-        } else {
-          new Notice('正在保存到知识库...');
-          await this.saveAndBacklink(input, result.notes);
+          const dupCount = new Set(result.duplicateHints.map(h => h.noteIndex)).size;
+          new Notice(`已自动保存（含 ${dupCount} 篇疑似重复，你可以在知识库中核查）`, 5000);
         }
       } else {
         new ResultModal(this.app, result, result.vaultDedupResult, async (notes) => { await this.saveAndBacklink(input, notes); }).open();
       }
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') { new Notice('提炼已取消'); return; }
-      new Notice(`提炼失败：${error instanceof Error ? error.message : String(error)}`);
+      // API 错误 → 弹错误弹窗，提供重试
+      this.showErrorModal(input, friendlyError(error), opts, true);
     } finally {
       this._isExtracting = false;
       this._abortController = null;
@@ -510,6 +523,65 @@ export default class AtomicNotesPlugin extends Plugin {
           this.close();
           await this.plugin.runExtraction(input, { ...opts, skipDuplicateCheck: true });
         });
+      }
+
+      onClose() { this.contentEl.empty(); }
+    })(this);
+
+    modal.open();
+  }
+
+  /**
+   * 提炼失败的错误弹窗（含重试按钮）
+   */
+  private showErrorModal(
+    input: { type: 'url' | 'text' | 'selection'; content: string },
+    errorMsg: string,
+    opts: { onProgress?: ProgressCallback; skipGate?: boolean; skipDuplicateCheck?: boolean },
+    retryable: boolean
+  ) {
+    const modal = new (class extends Modal {
+      constructor(plugin: AtomicNotesPlugin) { super(plugin.app); }
+
+      onOpen() {
+        const { contentEl } = this;
+        contentEl.empty();
+        contentEl.createEl('h3', { text: '✗ 提炼失败' });
+
+        const errorBox = contentEl.createEl('div', {
+          attr: {
+            style: [
+              'background:var(--background-secondary)',
+              'border-left:3px solid var(--color-red)',
+              'border-radius:6px',
+              'padding:10px 14px',
+              'margin:10px 0',
+              'font-size:13px',
+              'color:var(--text-muted)',
+              'word-break:break-word',
+            ].join(';'),
+          },
+        });
+        errorBox.setText(errorMsg);
+
+        const btnRow = contentEl.createEl('div', {
+          attr: { style: 'display:flex;gap:10px;justify-content:flex-end;margin-top:16px' },
+        });
+
+        const closeBtn = btnRow.createEl('button', { text: '关闭' });
+        closeBtn.addEventListener('click', () => this.close());
+
+        if (retryable) {
+          const retryBtn = btnRow.createEl('button', {
+            text: '重试',
+            attr: { style: 'background:var(--interactive-accent);color:#fff;border:none;padding:6px 16px;border-radius:6px;cursor:pointer;font-weight:600' },
+          });
+          retryBtn.addEventListener('click', async () => {
+            this.close();
+            // 重试时跳过重复检测
+            await this.plugin.runExtraction(input, { skipDuplicateCheck: true, skipGate: opts.skipGate });
+          });
+        }
       }
 
       onClose() { this.contentEl.empty(); }

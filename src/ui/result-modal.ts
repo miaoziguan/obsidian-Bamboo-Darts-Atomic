@@ -179,7 +179,7 @@ export class ResultModal extends Modal {
 
     if (this.dedupResult.duplicates.length === 0) {
       reportEl.createEl('p', {
-        text: '未检测到与知识库重复的笔记',
+        text: '✅ 未检测到与知识库重复的笔记',
         attr: { style: 'color:var(--text-muted)' },
       });
     } else {
@@ -478,7 +478,7 @@ export class ResultModal extends Modal {
 
     const total = summary.traced + summary.needsCompare + summary.outOfScope;
     if (total === 0) {
-      el.createEl('p', { text: '无可验证内容', attr: { style: 'color:var(--text-muted)' } });
+      el.createEl('p', { text: '🔍 无可验证内容', attr: { style: 'color:var(--text-muted)' } });
       return;
     }
 
@@ -635,7 +635,7 @@ export class ResultModal extends Modal {
     // 无结果提示
     if (this.visibleIndices.length === 0) {
       container.createEl('div', {
-        text: '没有匹配的笔记',
+        text: '📭 没有匹配的笔记',
         attr: { style: 'color:var(--text-muted);font-size:13px;padding:20px 0;text-align:center' },
       });
       return;
@@ -682,9 +682,26 @@ export class ResultModal extends Modal {
         }
       }
 
-      // ── 预览 ──
-      const preview = note.content.slice(0, 200) + (note.content.length > 200 ? '...' : '');
-      card.createEl('div', { cls: 'atomic-notes-card-preview', text: preview });
+      // ── 预览（可展开） ──
+      const isLong = note.content.length > 200;
+      const previewText = isLong ? note.content.slice(0, 200) + '...' : note.content;
+      const previewEl = card.createEl('div', { cls: 'atomic-notes-card-preview', text: previewText });
+      if (isLong) {
+        previewEl.setAttr('title', '点击展开/收起全文');
+        previewEl.style.cursor = 'pointer';
+        const expandHint = card.createEl('span', {
+          text: '展开全文 ▼',
+          attr: { style: 'font-size:10px;color:var(--text-faint);cursor:pointer;user-select:none' },
+        });
+        let expanded = false;
+        const toggleExpand = () => {
+          expanded = !expanded;
+          previewEl.setText(expanded ? note.content : previewText);
+          expandHint.setText(expanded ? '收起 ▲' : '展开全文 ▼');
+        };
+        previewEl.addEventListener('click', toggleExpand);
+        expandHint.addEventListener('click', toggleExpand);
+      }
 
       // ── 核查详情（可折叠） ──
       if (note.verification && note.verification.length > 0) {
@@ -800,6 +817,70 @@ export class ResultModal extends Modal {
           },
         });
       }
+
+      // ── 编辑按钮 ──
+      const editSection = card.createEl('div', { attr: { style: 'margin-top:8px' } });
+      const editBtn = editSection.createEl('button', {
+        text: '✎ 编辑',
+        attr: { style: 'font-size:11px;padding:2px 10px;cursor:pointer;background:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:4px;color:var(--text-muted)' },
+      });
+      const editPanel = editSection.createEl('div', {
+        attr: { style: 'display:none;margin-top:8px' },
+      });
+
+      let isEditing = false;
+      editBtn.addEventListener('click', () => {
+        isEditing = !isEditing;
+        if (isEditing) {
+          editPanel.empty();
+          editPanel.createEl('label', {
+            text: '标题',
+            attr: { style: 'font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px' },
+          });
+          const titleInput = editPanel.createEl('input', {
+            attr: {
+              type: 'text',
+              value: note.title,
+              style: 'width:100%;font-size:13px;padding:4px 8px;border:1px solid var(--background-modifier-border);border-radius:4px;margin-bottom:8px;box-sizing:border-box',
+            },
+          }) as HTMLInputElement;
+          editPanel.createEl('label', {
+            text: '内容',
+            attr: { style: 'font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px' },
+          });
+          const contentInput = editPanel.createEl('textarea', {
+            text: note.content,
+            attr: {
+              style: 'width:100%;min-height:100px;font-size:12px;padding:6px 8px;border:1px solid var(--background-modifier-border);border-radius:4px;margin-bottom:8px;box-sizing:border-box;resize:vertical;font-family:var(--font-text)',
+            },
+          }) as HTMLTextAreaElement;
+          const applyBtn = editPanel.createEl('button', {
+            text: '应用修改',
+            attr: { style: 'font-size:11px;padding:3px 12px;cursor:pointer' },
+          });
+          applyBtn.addEventListener('click', () => {
+            note.title = titleInput.value.trim() || note.title;
+            note.content = contentInput.value.trim() || note.content;
+            isEditing = false;
+            editPanel.style.display = 'none';
+            editBtn.setText('✎ 编辑');
+            // 更新标题显示
+            const titleEl = card.querySelector('.atomic-notes-card-title') as HTMLElement;
+            if (titleEl) titleEl.setText(`${this.result.notes.indexOf(note) + 1}. ${note.title}`);
+            // 更新预览
+            const previewEl = card.querySelector('.atomic-notes-card-preview') as HTMLElement;
+            if (previewEl) {
+              const isLong = note.content.length > 200;
+              previewEl.setText(isLong ? note.content.slice(0, 200) + '...' : note.content);
+            }
+          });
+          editPanel.style.display = 'block';
+          editBtn.setText('✎ 收起编辑');
+        } else {
+          editPanel.style.display = 'none';
+          editBtn.setText('✎ 编辑');
+        }
+      });
     }
   }
 

@@ -63,6 +63,12 @@
   box-sizing: border-box;
 }
 
+.atomic-notes-textarea.atomic-notes-drop-active {
+  border-color: var(--interactive-accent);
+  border-style: dashed;
+  background: var(--background-secondary);
+}
+
 .atomic-notes-url-input {
   width: 100%;
   padding: 8px;
@@ -193,6 +199,135 @@
   padding-bottom: 4px;
   border-bottom: 1px solid var(--background-modifier-border);
   margin: 16px 0 8px;
+}
+
+.atomic-notes-about-subtitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-accent);
+  margin: 12px 0 4px;
+}
+
+.atomic-notes-about-text {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.7;
+  margin: 4px 0;
+}
+
+.atomic-notes-about-phase-row {
+  display: flex;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.atomic-notes-about-phase-row .phase-tag {
+  font-size: 11px;
+  color: var(--text-accent);
+  flex-shrink: 0;
+  min-width: 52px;
+}
+
+.atomic-notes-about-phase-row .phase-name {
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+  min-width: 56px;
+  color: var(--text-normal);
+}
+
+.atomic-notes-about-phase-row .phase-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.atomic-notes-about-bullet {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.7;
+  margin: 4px 0;
+  padding-left: 10px;
+}
+
+.atomic-notes-gate-table-header {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+.atomic-notes-gate-table-header .gate-col-rule { min-width: 64px; }
+.atomic-notes-gate-table-header .gate-col-block { min-width: 100px; }
+.atomic-notes-gate-table-header .gate-col-warn { flex: 1; }
+
+.atomic-notes-gate-row {
+  display: flex;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 11px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.atomic-notes-gate-row .gate-col-rule {
+  min-width: 64px;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.atomic-notes-gate-row .gate-col-block {
+  min-width: 100px;
+  color: var(--text-error);
+}
+
+.atomic-notes-gate-row .gate-col-warn {
+  flex: 1;
+  color: var(--text-warning);
+}
+
+.atomic-notes-about-detail-row {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0 2px 12px;
+}
+
+.atomic-notes-about-detail-row .detail-label {
+  font-size: 12px;
+  font-weight: 600;
+  min-width: 72px;
+  color: var(--text-normal);
+}
+
+.atomic-notes-about-detail-row .detail-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.atomic-notes-about-author {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-normal);
+}
+
+.atomic-notes-about-divider {
+  margin: 20px 0 12px;
+  border: none;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+/* 空状态提示 */
+.atomic-notes-empty-state {
+  text-align: center;
+  padding: 24px 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.atomic-notes-empty-state .empty-icon {
+  font-size: 28px;
+  display: block;
+  margin-bottom: 8px;
+  opacity: 0.5;
 }
 
 /* ─────────────────────────────────────────────

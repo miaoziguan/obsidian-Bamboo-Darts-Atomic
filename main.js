@@ -3296,7 +3296,7 @@ var ResultModal = class extends import_obsidian7.Modal {
     reportEl.createEl("div", { text: "\u53BB\u91CD\u62A5\u544A", cls: "atomic-notes-section-header" });
     if (this.dedupResult.duplicates.length === 0) {
       reportEl.createEl("p", {
-        text: "\u672A\u68C0\u6D4B\u5230\u4E0E\u77E5\u8BC6\u5E93\u91CD\u590D\u7684\u7B14\u8BB0",
+        text: "\u2705 \u672A\u68C0\u6D4B\u5230\u4E0E\u77E5\u8BC6\u5E93\u91CD\u590D\u7684\u7B14\u8BB0",
         attr: { style: "color:var(--text-muted)" }
       });
     } else {
@@ -3555,7 +3555,7 @@ var ResultModal = class extends import_obsidian7.Modal {
     el.createEl("div", { text: "\u5185\u5BB9\u6838\u67E5", cls: "atomic-notes-section-header" });
     const total = summary.traced + summary.needsCompare + summary.outOfScope;
     if (total === 0) {
-      el.createEl("p", { text: "\u65E0\u53EF\u9A8C\u8BC1\u5185\u5BB9", attr: { style: "color:var(--text-muted)" } });
+      el.createEl("p", { text: "\u{1F50D} \u65E0\u53EF\u9A8C\u8BC1\u5185\u5BB9", attr: { style: "color:var(--text-muted)" } });
       return;
     }
     const row = el.createEl("div", { attr: { style: "display:flex;gap:12px;align-items:center" } });
@@ -3678,7 +3678,7 @@ var ResultModal = class extends import_obsidian7.Modal {
     }
     if (this.visibleIndices.length === 0) {
       container.createEl("div", {
-        text: "\u6CA1\u6709\u5339\u914D\u7684\u7B14\u8BB0",
+        text: "\u{1F4ED} \u6CA1\u6709\u5339\u914D\u7684\u7B14\u8BB0",
         attr: { style: "color:var(--text-muted);font-size:13px;padding:20px 0;text-align:center" }
       });
       return;
@@ -3719,8 +3719,25 @@ var ResultModal = class extends import_obsidian7.Modal {
           chipGroup.createEl("span", { cls: "atomic-notes-verify-chip unverified", text: `\u8D85\u6E90${outOfScope}` });
         }
       }
-      const preview = note.content.slice(0, 200) + (note.content.length > 200 ? "..." : "");
-      card.createEl("div", { cls: "atomic-notes-card-preview", text: preview });
+      const isLong = note.content.length > 200;
+      const previewText = isLong ? note.content.slice(0, 200) + "..." : note.content;
+      const previewEl = card.createEl("div", { cls: "atomic-notes-card-preview", text: previewText });
+      if (isLong) {
+        previewEl.setAttr("title", "\u70B9\u51FB\u5C55\u5F00/\u6536\u8D77\u5168\u6587");
+        previewEl.style.cursor = "pointer";
+        const expandHint = card.createEl("span", {
+          text: "\u5C55\u5F00\u5168\u6587 \u25BC",
+          attr: { style: "font-size:10px;color:var(--text-faint);cursor:pointer;user-select:none" }
+        });
+        let expanded = false;
+        const toggleExpand = () => {
+          expanded = !expanded;
+          previewEl.setText(expanded ? note.content : previewText);
+          expandHint.setText(expanded ? "\u6536\u8D77 \u25B2" : "\u5C55\u5F00\u5168\u6587 \u25BC");
+        };
+        previewEl.addEventListener("click", toggleExpand);
+        expandHint.addEventListener("click", toggleExpand);
+      }
       if (note.verification && note.verification.length > 0) {
         const verifySection = card.createEl("div", {
           attr: { style: "margin-top:6px" }
@@ -3818,6 +3835,66 @@ var ResultModal = class extends import_obsidian7.Modal {
           }
         });
       }
+      const editSection = card.createEl("div", { attr: { style: "margin-top:8px" } });
+      const editBtn = editSection.createEl("button", {
+        text: "\u270E \u7F16\u8F91",
+        attr: { style: "font-size:11px;padding:2px 10px;cursor:pointer;background:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:4px;color:var(--text-muted)" }
+      });
+      const editPanel = editSection.createEl("div", {
+        attr: { style: "display:none;margin-top:8px" }
+      });
+      let isEditing = false;
+      editBtn.addEventListener("click", () => {
+        isEditing = !isEditing;
+        if (isEditing) {
+          editPanel.empty();
+          editPanel.createEl("label", {
+            text: "\u6807\u9898",
+            attr: { style: "font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px" }
+          });
+          const titleInput = editPanel.createEl("input", {
+            attr: {
+              type: "text",
+              value: note.title,
+              style: "width:100%;font-size:13px;padding:4px 8px;border:1px solid var(--background-modifier-border);border-radius:4px;margin-bottom:8px;box-sizing:border-box"
+            }
+          });
+          editPanel.createEl("label", {
+            text: "\u5185\u5BB9",
+            attr: { style: "font-size:11px;color:var(--text-muted);display:block;margin-bottom:2px" }
+          });
+          const contentInput = editPanel.createEl("textarea", {
+            text: note.content,
+            attr: {
+              style: "width:100%;min-height:100px;font-size:12px;padding:6px 8px;border:1px solid var(--background-modifier-border);border-radius:4px;margin-bottom:8px;box-sizing:border-box;resize:vertical;font-family:var(--font-text)"
+            }
+          });
+          const applyBtn = editPanel.createEl("button", {
+            text: "\u5E94\u7528\u4FEE\u6539",
+            attr: { style: "font-size:11px;padding:3px 12px;cursor:pointer" }
+          });
+          applyBtn.addEventListener("click", () => {
+            note.title = titleInput.value.trim() || note.title;
+            note.content = contentInput.value.trim() || note.content;
+            isEditing = false;
+            editPanel.style.display = "none";
+            editBtn.setText("\u270E \u7F16\u8F91");
+            const titleEl = card.querySelector(".atomic-notes-card-title");
+            if (titleEl)
+              titleEl.setText(`${this.result.notes.indexOf(note) + 1}. ${note.title}`);
+            const previewEl2 = card.querySelector(".atomic-notes-card-preview");
+            if (previewEl2) {
+              const isLong2 = note.content.length > 200;
+              previewEl2.setText(isLong2 ? note.content.slice(0, 200) + "..." : note.content);
+            }
+          });
+          editPanel.style.display = "block";
+          editBtn.setText("\u270E \u6536\u8D77\u7F16\u8F91");
+        } else {
+          editPanel.style.display = "none";
+          editBtn.setText("\u270E \u7F16\u8F91");
+        }
+      });
     }
   }
   renderActions(container) {
@@ -4001,17 +4078,25 @@ var AtomicNotesPanel = class extends import_obsidian9.ItemView {
     container.empty();
     container.addClass("atomic-notes-panel");
     container.createEl("h3", { text: "\u539F\u5B50\u7B14\u8BB0\u63D0\u70BC" });
-    const tabBar = container.createEl("div", { cls: "atomic-notes-tabs" });
-    const tabs = [
-      tabBar.createEl("div", { text: "\u8F93\u5165", cls: "atomic-notes-tab active" }),
-      tabBar.createEl("div", { text: "\u5386\u53F2", cls: "atomic-notes-tab" }),
-      tabBar.createEl("div", { text: "\u53D1\u73B0", cls: "atomic-notes-tab" }),
-      tabBar.createEl("div", { text: "\u4ECB\u7ECD", cls: "atomic-notes-tab" })
-    ];
-    const inputPanel = container.createEl("div", { cls: "atomic-notes-tab-content active" });
-    const historyPanel = container.createEl("div", { cls: "atomic-notes-tab-content", attr: { style: "max-height:500px;overflow-y:auto" } });
-    const discoveryPanel = container.createEl("div", { cls: "atomic-notes-tab-content", attr: { style: "max-height:500px;overflow-y:auto" } });
-    const aboutPanel = container.createEl("div", { cls: "atomic-notes-tab-content", attr: { style: "max-height:500px;overflow-y:auto" } });
+    const tabBar = container.createEl("div", { cls: "atomic-notes-tabs", attr: { role: "tablist", "aria-label": "\u529F\u80FD\u5BFC\u822A" } });
+    const tabLabels = ["\u8F93\u5165", "\u5386\u53F2", "\u53D1\u73B0", "\u4ECB\u7ECD"];
+    const tabs = [];
+    for (let i = 0; i < tabLabels.length; i++) {
+      const tab = tabBar.createEl("button", {
+        text: tabLabels[i],
+        cls: "atomic-notes-tab" + (i === 0 ? " active" : ""),
+        attr: {
+          role: "tab",
+          "aria-selected": i === 0 ? "true" : "false",
+          "aria-controls": `tab-panel-${i}`
+        }
+      });
+      tabs.push(tab);
+    }
+    const inputPanel = container.createEl("div", { cls: "atomic-notes-tab-content active", attr: { role: "tabpanel", id: "tab-panel-0", "aria-labelledby": tabs[0].id || "tab-0" } });
+    const historyPanel = container.createEl("div", { cls: "atomic-notes-tab-content", attr: { style: "max-height:500px;overflow-y:auto", role: "tabpanel", id: "tab-panel-1", "aria-labelledby": tabs[1].id || "tab-1" } });
+    const discoveryPanel = container.createEl("div", { cls: "atomic-notes-tab-content", attr: { style: "max-height:500px;overflow-y:auto", role: "tabpanel", id: "tab-panel-2", "aria-labelledby": tabs[2].id || "tab-2" } });
+    const aboutPanel = container.createEl("div", { cls: "atomic-notes-tab-content", attr: { style: "max-height:500px;overflow-y:auto", role: "tabpanel", id: "tab-panel-3", "aria-labelledby": tabs[3].id || "tab-3" } });
     const contentPanels = [inputPanel, historyPanel, discoveryPanel, aboutPanel];
     const progressWrap = container.createEl("div", {
       cls: "atomic-notes-progress-wrap",
@@ -4023,6 +4108,7 @@ var AtomicNotesPanel = class extends import_obsidian9.ItemView {
       tabs[i].addEventListener("click", () => {
         for (let j = 0; j < tabs.length; j++) {
           tabs[j].classList.toggle("active", j === i);
+          tabs[j].setAttribute("aria-selected", j === i ? "true" : "false");
           contentPanels[j].classList.toggle("active", j === i);
         }
         progressWrap.style.display = i > 0 ? "none" : progressWrap.style.display;
@@ -4055,7 +4141,37 @@ var AtomicNotesPanel = class extends import_obsidian9.ItemView {
     });
     const textarea = panel.createEl("textarea", {
       cls: "atomic-notes-textarea",
-      attr: { placeholder: "\u5728\u6B64\u7C98\u8D34\u8981\u63D0\u70BC\u7684\u6587\u672C..." }
+      attr: { placeholder: "\u5728\u6B64\u7C98\u8D34\u8981\u63D0\u70BC\u7684\u6587\u672C\uFF08\u6216\u62D6\u5165 .md / .txt \u6587\u4EF6\uFF09..." }
+    });
+    textarea.addEventListener("dragover", (ev) => {
+      ev.preventDefault();
+      if (ev.dataTransfer)
+        ev.dataTransfer.dropEffect = "copy";
+      textarea.addClass("atomic-notes-drop-active");
+    });
+    textarea.addEventListener("dragleave", () => {
+      textarea.removeClass("atomic-notes-drop-active");
+    });
+    textarea.addEventListener("drop", async (ev) => {
+      ev.preventDefault();
+      textarea.removeClass("atomic-notes-drop-active");
+      const files = ev.dataTransfer?.files;
+      if (!files || files.length === 0)
+        return;
+      const file = files[0];
+      const name = file.name.toLowerCase();
+      if (!name.endsWith(".md") && !name.endsWith(".txt")) {
+        new import_obsidian9.Notice("\u4EC5\u652F\u6301 .md \u548C .txt \u6587\u4EF6");
+        return;
+      }
+      try {
+        const text = await file.text();
+        textarea.value = text;
+        charCountEl.setText(`${text.length} \u5B57`);
+        new import_obsidian9.Notice(`\u5DF2\u5BFC\u5165 ${file.name}\uFF08${text.length} \u5B57\uFF09`);
+      } catch {
+        new import_obsidian9.Notice(`\u8BFB\u53D6\u6587\u4EF6\u5931\u8D25\uFF1A${file.name}`);
+      }
     });
     const pasteMeta = panel.createEl("div", { cls: "atomic-notes-meta-row" });
     const charCountEl = pasteMeta.createEl("span", { cls: "atomic-notes-char-count", text: "0 \u5B57" });
@@ -4154,10 +4270,10 @@ var AtomicNotesPanel = class extends import_obsidian9.ItemView {
     el.empty();
     const history = this.plugin.settings.extractionHistory || [];
     if (history.length === 0) {
-      el.createEl("p", {
-        text: "\u6682\u65E0\u63D0\u70BC\u5386\u53F2",
-        attr: { style: "color:var(--text-muted);padding:16px;text-align:center" }
-      });
+      el.createEl("div", { cls: "atomic-notes-empty-state" });
+      const emptyEl = el.getElementsByClassName("atomic-notes-empty-state")[el.getElementsByClassName("atomic-notes-empty-state").length - 1];
+      emptyEl.createEl("span", { text: "\u{1F4DD}", cls: "empty-icon" });
+      emptyEl.createEl("div", { text: "\u6682\u65E0\u63D0\u70BC\u5386\u53F2" });
       return;
     }
     const toolbar = el.createEl("div", {
@@ -4280,31 +4396,23 @@ var AtomicNotesPanel = class extends import_obsidian9.ItemView {
   // ─── About 面板 ───
   renderAboutPanel(el) {
     el.empty();
-    el.setAttr("style", "padding:0 2px");
-    const sectionStyle = "margin:16px 0 8px;font-size:14px;font-weight:700;color:var(--text-normal);padding-bottom:4px;border-bottom:1px solid var(--background-modifier-border)";
-    const textStyle = "font-size:12px;color:var(--text-muted);line-height:1.7;margin:4px 0";
-    el.createEl("div", { text: "\u7AF9\u53F6\u98DE\u5203\u8BBE\u8BA1\u7406\u5FF5", attr: { style: sectionStyle } });
-    el.createEl("div", {
-      text: "\u7528\u6CD5\u4E00\uFF1A\u63D0\u70BC\u77E5\u8BC6\u8282\u70B9",
-      attr: { style: "font-size:12px;font-weight:600;color:var(--text-accent);margin:8px 0 4px" }
-    });
+    el.addClass("atomic-notes-panel");
+    el.createEl("div", { text: "\u7AF9\u53F6\u98DE\u5203\u8BBE\u8BA1\u7406\u5FF5", cls: "atomic-notes-about-section" });
+    el.createEl("div", { text: "\u7528\u6CD5\u4E00\uFF1A\u63D0\u70BC\u77E5\u8BC6\u8282\u70B9", cls: "atomic-notes-about-subtitle" });
     el.createEl("p", {
       text: "\u539F\u5B50\u7B14\u8BB0\u662F\u4E00\u6BB5\u72EC\u7ACB\u3001\u5B8C\u6574\u3001\u53EF\u76F4\u63A5\u590D\u7528\u7684\u77E5\u8BC6\u5355\u5143\u3002\u6BCF\u6761\u7B14\u8BB0\u56F4\u7ED5\u5355\u4E00\u6982\u5FF5\uFF0C\u4E0D\u4F9D\u8D56\u4E0A\u4E0B\u6587\u5373\u53EF\u7406\u89E3\u3002AI \u63D0\u70BC\u7684\u4EF7\u503C\u4E0D\u5728\u4E8E\u66FF\u4EE3\u601D\u8003\uFF0C\u800C\u5728\u4E8E\u5F3A\u5236\u5BF9\u4FE1\u606F\u8FDB\u884C\u538B\u7F29\u548C\u7ED3\u6784\u5316\u2014\u2014\u628A\u6A21\u7CCA\u7684\u9605\u8BFB\u611F\u53D7\u8F6C\u5316\u4E3A\u53EF\u68C0\u7D22\u3001\u53EF\u5173\u8054\u7684\u77E5\u8BC6\u8282\u70B9\u3002",
-      attr: { style: textStyle }
+      cls: "atomic-notes-about-text"
     });
-    el.createEl("div", {
-      text: "\u7528\u6CD5\u4E8C\uFF1A\u5BF9\u6297\u4FE1\u606F\u5783\u573E",
-      attr: { style: "font-size:12px;font-weight:600;color:var(--text-accent);margin:12px 0 4px" }
-    });
+    el.createEl("div", { text: "\u7528\u6CD5\u4E8C\uFF1A\u5BF9\u6297\u4FE1\u606F\u5783\u573E", cls: "atomic-notes-about-subtitle" });
     el.createEl("p", {
       text: "AI \u65F6\u4EE3\u7684\u5185\u5BB9\u751F\u4EA7\u901F\u5EA6\u8FDC\u8D85\u4EBA\u7C7B\u7684\u9605\u8BFB\u901F\u5EA6\u3002\u5927\u91CF\u6587\u7AE0\u770B\u4F3C\u6D0B\u6D0B\u6D12\u6D12\uFF0C\u5B9E\u5219\u4FE1\u606F\u5BC6\u5EA6\u6781\u4F4E\u2014\u2014\u7FFB\u6765\u8986\u53BB\u8BB2\u540C\u4E00\u53E5\u8BDD\u3001\u5806\u780C SEO \u5173\u952E\u8BCD\u3001\u586B\u5145\u65E0\u610F\u4E49\u7684\u8FC7\u6E21\u6BB5\u843D\u3002",
-      attr: { style: textStyle }
+      cls: "atomic-notes-about-text"
     });
     el.createEl("p", {
       text: "\u672C\u63D2\u4EF6\u7684\u8D28\u91CF\u95E8\u63A7\u548C\u590D\u67E5\u673A\u5236\u6B63\u662F\u4E3A\u6B64\u8BBE\u8BA1\uFF1A\u524D\u7F6E\u8FC7\u6EE4\u566A\u58F0\u5185\u5BB9\uFF0CAI \u63D0\u70BC\u540E\u4E8C\u6B21\u8BC4\u5206\uFF0C\u5E2E\u4F60\u628A\u65F6\u95F4\u82B1\u5728\u771F\u6B63\u503C\u5F97\u8BFB\u7684\u4FE1\u606F\u4E0A\uFF0C\u800C\u4E0D\u662F\u88AB\u6CE8\u6C34\u6587\u7AE0\u6D88\u8017\u6CE8\u610F\u529B\u3002",
-      attr: { style: textStyle }
+      cls: "atomic-notes-about-text"
     });
-    el.createEl("div", { text: "\u5904\u7406\u6D41\u7A0B", attr: { style: sectionStyle } });
+    el.createEl("div", { text: "\u5904\u7406\u6D41\u7A0B", cls: "atomic-notes-about-section" });
     const phases = [
       ["Phase 1", "\u8BFB\u53D6\u5185\u5BB9", "\u4ECE\u6587\u672C\u3001URL \u6216\u526A\u8D34\u677F\u83B7\u53D6\u539F\u59CB\u5185\u5BB9"],
       ["Phase 2", "\u8D28\u91CF\u95E8\u63A7", "9 \u5C42\u89C4\u5219\u524D\u7F6E\u8FC7\u6EE4\u4F4E\u8D28/\u566A\u58F0\u5185\u5BB9\uFF0C\u786C\u62E6+\u8F6F\u8B66\u544A"],
@@ -4315,36 +4423,24 @@ var AtomicNotesPanel = class extends import_obsidian9.ItemView {
       ["Phase 6", "\u7B14\u8BB0\u590D\u67E5", "AI \u4E8C\u6B21\u8BC4\u5206\uFF0C\u8FC7\u6EE4\u4F4E\u4EF7\u503C\u7B14\u8BB0"]
     ];
     for (const [phase, name, desc] of phases) {
-      const row = el.createEl("div", { attr: { style: "display:flex;gap:8px;padding:4px 0" } });
-      row.createEl("span", { text: phase, attr: { style: "font-size:11px;color:var(--text-accent);flex-shrink:0;min-width:52px" } });
-      row.createEl("span", { text: name, attr: { style: "font-size:12px;font-weight:600;flex-shrink:0;min-width:56px" } });
-      row.createEl("span", { text: desc, attr: { style: "font-size:11px;color:var(--text-muted)" } });
+      const row = el.createEl("div", { cls: "atomic-notes-about-phase-row" });
+      row.createEl("span", { text: phase, cls: "phase-tag" });
+      row.createEl("span", { text: name, cls: "phase-name" });
+      row.createEl("span", { text: desc, cls: "phase-desc" });
     }
-    el.createEl("div", { text: "\u53BB\u91CD\u7B97\u6CD5", attr: { style: sectionStyle } });
-    el.createEl("p", {
-      text: "Phase 4 \u4E0E Phase 4b \u91C7\u7528 TF-IDF + \u4F59\u5F26\u76F8\u4F3C\u5EA6\u7B97\u6CD5\uFF1A",
-      attr: { style: textStyle }
-    });
-    el.createEl("div", {
-      text: "\u2022 \u4E2D\u6587\u6309\u5B57\u7B26 3-gram\uFF08\u82F1\u6587\u6309\u5B8C\u6574\u8BCD\uFF09\u63D0\u53D6 token",
-      attr: { style: textStyle + ";padding-left:10px" }
-    });
-    el.createEl("div", {
-      text: "\u2022 \u6BCF\u7BC7\u6587\u6863\u8F6C\u5316\u4E3A TF-IDF \u5411\u91CF\uFF0C\u4E24\u7BC7\u76F8\u4F3C\u5EA6\u901A\u8FC7\u5411\u91CF\u4F59\u5F26\u8BA1\u7B97",
-      attr: { style: textStyle + ";padding-left:10px" }
-    });
-    el.createEl("div", {
-      text: "\u2022 \u76F8\u6BD4\u5173\u952E\u8BCD\u5339\u914D\uFF0C\u5BF9\u540C\u4E49\u8BCD\u3001\u6362\u8BF4\u6CD5\u3001\u8FD1\u4E49\u8BCD\u66F4\u9C81\u68D2",
-      attr: { style: textStyle + ";padding-left:10px" }
-    });
+    el.createEl("div", { text: "\u53BB\u91CD\u7B97\u6CD5", cls: "atomic-notes-about-section" });
+    el.createEl("p", { text: "Phase 4 \u4E0E Phase 4b \u91C7\u7528 TF-IDF + \u4F59\u5F26\u76F8\u4F3C\u5EA6\u7B97\u6CD5\uFF1A", cls: "atomic-notes-about-text" });
+    el.createEl("div", { text: "\u2022 \u4E2D\u6587\u6309\u5B57\u7B26 3-gram\uFF08\u82F1\u6587\u6309\u5B8C\u6574\u8BCD\uFF09\u63D0\u53D6 token", cls: "atomic-notes-about-bullet" });
+    el.createEl("div", { text: "\u2022 \u6BCF\u7BC7\u6587\u6863\u8F6C\u5316\u4E3A TF-IDF \u5411\u91CF\uFF0C\u4E24\u7BC7\u76F8\u4F3C\u5EA6\u901A\u8FC7\u5411\u91CF\u4F59\u5F26\u8BA1\u7B97", cls: "atomic-notes-about-bullet" });
+    el.createEl("div", { text: "\u2022 \u76F8\u6BD4\u5173\u952E\u8BCD\u5339\u914D\uFF0C\u5BF9\u540C\u4E49\u8BCD\u3001\u6362\u8BF4\u6CD5\u3001\u8FD1\u4E49\u8BCD\u66F4\u9C81\u68D2", cls: "atomic-notes-about-bullet" });
     el.createEl("p", {
       text: '\u77E5\u8BC6\u5E93\u53BB\u91CD\u9ED8\u8BA4\u8BFB\u53D6\u76EE\u6807\u6587\u4EF6\u5939\u5185\u5BB9\uFF0C\u53EF\u5728\u8BBE\u7F6E\u4E2D\u72EC\u7ACB\u6307\u5B9A"\u53BB\u91CD\u76EE\u6807\u6587\u4EF6\u5939"\uFF0C\u9002\u5408\u6709\u9690\u79C1\u9700\u6C42\u7528\u6237\u9650\u5236\u53BB\u91CD\u8303\u56F4\u3002',
-      attr: { style: textStyle }
+      cls: "atomic-notes-about-text"
     });
-    el.createEl("div", { text: "\u5B9E\u65F6\u8FDB\u5EA6\u53CD\u9988", attr: { style: sectionStyle } });
+    el.createEl("div", { text: "\u5B9E\u65F6\u8FDB\u5EA6\u53CD\u9988", cls: "atomic-notes-about-section" });
     el.createEl("p", {
       text: '\u63D0\u70BC\u8FC7\u7A0B\u4E2D\u6BCF\u4E00\u6B65\u90FD\u5B9E\u65F6\u663E\u793A\u5F53\u524D\u9636\u6BB5\u540D\u79F0\u3001\u8017\u65F6\u3001\u5B50\u8FDB\u5EA6\uFF0C\u53EF\u968F\u65F6\u70B9\u51FB"\u53D6\u6D88"\u7EC8\u6B62\u6D41\u7A0B\u3002',
-      attr: { style: textStyle }
+      cls: "atomic-notes-about-text"
     });
     const progressItems = [
       ["Phase 1", "\u8F93\u5165\u6587\u672C\u8BFB\u53D6"],
@@ -4355,11 +4451,11 @@ var AtomicNotesPanel = class extends import_obsidian9.ItemView {
       ["Phase 6", "\u590D\u67E5\u8BC4\u5206"]
     ];
     for (const [phase, detail] of progressItems) {
-      const row = el.createEl("div", { attr: { style: "display:flex;gap:8px;padding:2px 0 2px 12px" } });
-      row.createEl("span", { text: phase, attr: { style: "font-size:11px;color:var(--text-accent);font-weight:600;min-width:72px" } });
-      row.createEl("span", { text: detail, attr: { style: "font-size:11px;color:var(--text-muted)" } });
+      const row = el.createEl("div", { cls: "atomic-notes-about-detail-row" });
+      row.createEl("span", { text: phase, cls: "detail-label" });
+      row.createEl("span", { text: detail, cls: "detail-desc" });
     }
-    el.createEl("div", { text: "\u8D28\u91CF\u95E8\u63A7", attr: { style: sectionStyle } });
+    el.createEl("div", { text: "\u8D28\u91CF\u95E8\u63A7", cls: "atomic-notes-about-section" });
     const gateRules = [
       ["\u957F\u5EA6", "< 50 \u5B57", "50-200 \u5B57 / > 50000 \u5B57"],
       ["\u4FE1\u606F\u5BC6\u5EA6", "< 10%\uFF08\u4E25\u91CD\u91CD\u590D\uFF09", "< 30%\uFF08\u7591\u4F3C\u6C34\u6587\uFF09"],
@@ -4371,77 +4467,59 @@ var AtomicNotesPanel = class extends import_obsidian9.ItemView {
       ["\u8D28\u91CF\u8BC4\u5206", "\u2264 1 \u5206\uFF08\u5783\u573E\uFF09", "2 \u5206\uFF08\u5B58\u7591\uFF09"],
       ["\u91CD\u590D\u68C0\u6D4B", "> 50% \u76F8\u4F3C\u5EA6", "\u2014"]
     ];
-    const gateHeader = el.createEl("div", { attr: { style: "display:flex;gap:8px;padding:2px 0;font-size:11px;color:var(--text-faint)" } });
-    gateHeader.createEl("span", { text: "\u89C4\u5219", attr: { style: "min-width:64px" } });
-    gateHeader.createEl("span", { text: "\u786C\u963B\u65AD", attr: { style: "min-width:100px" } });
-    gateHeader.createEl("span", { text: "\u8F6F\u8B66\u544A" });
+    const gateHeader = el.createEl("div", { cls: "atomic-notes-gate-table-header" });
+    gateHeader.createEl("span", { text: "\u89C4\u5219", cls: "gate-col-rule" });
+    gateHeader.createEl("span", { text: "\u786C\u963B\u65AD", cls: "gate-col-block" });
+    gateHeader.createEl("span", { text: "\u8F6F\u8B66\u544A", cls: "gate-col-warn" });
     for (const [rule, block2, warn2] of gateRules) {
-      const row = el.createEl("div", { attr: { style: "display:flex;gap:8px;padding:3px 0;font-size:11px;border-top:1px solid var(--background-modifier-border)" } });
-      row.createEl("span", { text: rule, attr: { style: "min-width:64px;font-weight:600;color:var(--text-normal)" } });
-      row.createEl("span", { text: block2, attr: { style: "min-width:100px;color:var(--text-error)" } });
-      row.createEl("span", { text: warn2, attr: { style: "color:var(--text-warning)" } });
+      const row = el.createEl("div", { cls: "atomic-notes-gate-row" });
+      row.createEl("span", { text: rule, cls: "gate-col-rule" });
+      row.createEl("span", { text: block2, cls: "gate-col-block" });
+      row.createEl("span", { text: warn2, cls: "gate-col-warn" });
     }
     el.createEl("p", {
       text: "\u786C\u963B\u65AD\u7684\u89C4\u5219\u547D\u4E2D\u540E\u76F4\u63A5\u62D2\u7EDD\u63D0\u4EA4\u6D41\u7A0B\uFF1B\u8F6F\u8B66\u544A\u4EC5\u63D0\u9192\u7528\u6237\uFF0C\u4E0D\u5F71\u54CD\u7EE7\u7EED\u63D0\u70BC\u3002",
-      attr: { style: textStyle + ";margin-top:8px" }
+      cls: "atomic-notes-about-text"
     });
-    el.createEl("div", { text: "\u5185\u5BB9\u6838\u67E5\uFF08\u4E09\u5C42\u7BA1\u7EBF\uFF09", attr: { style: sectionStyle } });
-    el.createEl("p", {
-      text: "\u4ECE\u6BCF\u6761\u7B14\u8BB0\u4E2D\u63D0\u53D6\u4E8B\u5B9E\u58F0\u660E\uFF08\u6570\u5B57\u3001\u767E\u5206\u6BD4\u3001\u65E5\u671F\u3001\u5B9E\u4F53\u540D\u79F0\uFF09\uFF0C\u901A\u8FC7\u4E09\u5C42\u7BA1\u7EBF\u9010\u6761\u6838\u67E5\uFF1A",
-      attr: { style: textStyle }
-    });
-    el.createEl("div", {
-      text: "Layer 1 \xB7 \u539F\u6587\u6EAF\u6E90\uFF1A\u96F6 API \u8C03\u7528\uFF0C\u5728\u539F\u6587\u4E2D\u7CBE\u786E\u6216\u6A21\u7CCA\u5339\u914D\u58F0\u660E\u951A\u70B9",
-      attr: { style: textStyle + ";padding-left:10px" }
-    });
-    el.createEl("div", {
-      text: "Layer 2 \xB7 \u8BED\u4E49\u6BD4\u5BF9\uFF1A\u5355\u6B21 AI \u8C03\u7528\uFF0C\u5BF9\u65E0\u6CD5\u6EAF\u6E90\u7684\u58F0\u660E\u8FDB\u884C\u8BED\u4E49\u7EA7\u522B\u6BD4\u5BF9",
-      attr: { style: textStyle + ";padding-left:10px" }
-    });
-    el.createEl("div", {
-      text: 'Layer 3 \xB7 \u8D85\u6E90\u6807\u8BB0\uFF1A\u96F6 API \u8C03\u7528\uFF0C\u5C06\u8D85\u51FA\u539F\u6587\u8303\u56F4\u7684\u58F0\u660E\u6807\u8BB0\u4E3A"\u8D85\u6E90"',
-      attr: { style: textStyle + ";padding-left:10px" }
-    });
+    el.getElementsByClassName("atomic-notes-about-text")[el.getElementsByClassName("atomic-notes-about-text").length - 1].setAttr("style", "margin-top:8px");
+    el.createEl("div", { text: "\u5185\u5BB9\u6838\u67E5\uFF08\u4E09\u5C42\u7BA1\u7EBF\uFF09", cls: "atomic-notes-about-section" });
+    el.createEl("p", { text: "\u4ECE\u6BCF\u6761\u7B14\u8BB0\u4E2D\u63D0\u53D6\u4E8B\u5B9E\u58F0\u660E\uFF08\u6570\u5B57\u3001\u767E\u5206\u6BD4\u3001\u65E5\u671F\u3001\u5B9E\u4F53\u540D\u79F0\uFF09\uFF0C\u901A\u8FC7\u4E09\u5C42\u7BA1\u7EBF\u9010\u6761\u6838\u67E5\uFF1A", cls: "atomic-notes-about-text" });
+    el.createEl("div", { text: "Layer 1 \xB7 \u539F\u6587\u6EAF\u6E90\uFF1A\u96F6 API \u8C03\u7528\uFF0C\u5728\u539F\u6587\u4E2D\u7CBE\u786E\u6216\u6A21\u7CCA\u5339\u914D\u58F0\u660E\u951A\u70B9", cls: "atomic-notes-about-bullet" });
+    el.createEl("div", { text: "Layer 2 \xB7 \u8BED\u4E49\u6BD4\u5BF9\uFF1A\u5355\u6B21 AI \u8C03\u7528\uFF0C\u5BF9\u65E0\u6CD5\u6EAF\u6E90\u7684\u58F0\u660E\u8FDB\u884C\u8BED\u4E49\u7EA7\u522B\u6BD4\u5BF9", cls: "atomic-notes-about-bullet" });
+    el.createEl("div", { text: 'Layer 3 \xB7 \u8D85\u6E90\u6807\u8BB0\uFF1A\u96F6 API \u8C03\u7528\uFF0C\u5C06\u8D85\u51FA\u539F\u6587\u8303\u56F4\u7684\u58F0\u660E\u6807\u8BB0\u4E3A"\u8D85\u6E90"', cls: "atomic-notes-about-bullet" });
     const verifyStatus = [
       ["\u5DF2\u6EAF\u6E90", "\u58F0\u660E\u4E0E\u539F\u6587\u4E00\u81F4\u6216\u53EF\u63A8\u5BFC"],
       ["\u9700\u5BF9\u6BD4", "\u90E8\u5206\u76F8\u5173\u4F46\u5B58\u5728\u5DEE\u5F02\uFF0C\u9700\u4EBA\u5DE5\u786E\u8BA4"],
       ["\u8D85\u6E90", "\u58F0\u660E\u8D85\u51FA\u539F\u6587\u8303\u56F4\uFF0C\u65E0\u6CD5\u76F4\u63A5\u9A8C\u8BC1"]
     ];
     for (const [status, desc] of verifyStatus) {
-      const row = el.createEl("div", { attr: { style: "display:flex;gap:8px;padding:2px 0 2px 12px" } });
-      row.createEl("span", { text: status, attr: { style: "font-size:12px;font-weight:600;min-width:56px;color:var(--text-accent)" } });
-      row.createEl("span", { text: desc, attr: { style: "font-size:11px;color:var(--text-muted)" } });
+      const row = el.createEl("div", { cls: "atomic-notes-about-detail-row" });
+      row.createEl("span", { text: status, cls: "detail-label", attr: { style: "min-width:56px;color:var(--text-accent)" } });
+      row.createEl("span", { text: desc, cls: "detail-desc" });
     }
-    el.createEl("div", { text: "\u590D\u67E5\u673A\u5236", attr: { style: sectionStyle } });
-    el.createEl("p", {
-      text: "\u5F00\u542F\u540E AI \u4ECE\u4E24\u4E2A\u7EF4\u5EA6\u5BF9\u6BCF\u6761\u7B14\u8BB0\u6253\u5206\uFF081-5 \u5206\uFF09\uFF1A",
-      attr: { style: textStyle }
-    });
+    el.createEl("div", { text: "\u590D\u67E5\u673A\u5236", cls: "atomic-notes-about-section" });
+    el.createEl("p", { text: "\u5F00\u542F\u540E AI \u4ECE\u4E24\u4E2A\u7EF4\u5EA6\u5BF9\u6BCF\u6761\u7B14\u8BB0\u6253\u5206\uFF081-5 \u5206\uFF09\uFF1A", cls: "atomic-notes-about-text" });
     const scoreItems = [
       ["\u6D1E\u5BDF\u529B\u5206", "\u662F\u5426\u5305\u542B\u72EC\u7ACB\u89C2\u70B9\u6216\u72EC\u7279\u89C6\u89D2"],
       ["\u77E5\u8BC6\u4EF7\u503C\u5206", "\u662F\u5426\u80FD\u4E3A\u8BFB\u8005\u63D0\u4F9B\u53EF\u8FC1\u79FB\u7684\u9886\u57DF\u77E5\u8BC6"]
     ];
     for (const [label, desc] of scoreItems) {
-      const row = el.createEl("div", { attr: { style: "display:flex;gap:8px;padding:2px 0 2px 12px" } });
-      row.createEl("span", { text: label, attr: { style: "font-size:12px;font-weight:600;min-width:72px" } });
-      row.createEl("span", { text: desc, attr: { style: "font-size:11px;color:var(--text-muted)" } });
+      const row = el.createEl("div", { cls: "atomic-notes-about-detail-row" });
+      row.createEl("span", { text: label, cls: "detail-label" });
+      row.createEl("span", { text: desc, cls: "detail-desc" });
     }
     el.createEl("p", {
       text: "\u603B\u5206 < 3 \u7684\u7B14\u8BB0\u88AB\u81EA\u52A8\u8FC7\u6EE4\uFF0C\u4E0D\u8FDB\u5165\u77E5\u8BC6\u5E93\u3002\u8FD9\u662F\u63D0\u70BC\u540E\u7684\u6700\u540E\u4E00\u9053\u8D28\u91CF\u9632\u7EBF\u3002",
-      attr: { style: textStyle + ";margin-top:6px" }
+      cls: "atomic-notes-about-text"
     });
-    el.createEl("hr", {
-      attr: { style: "margin:20px 0 12px;border:none;border-top:1px solid var(--background-modifier-border)" }
-    });
-    el.createEl("div", { text: "\u4F5C\u8005", attr: { style: sectionStyle } });
-    el.createEl("div", { text: "\u7FBD\u9CDE\u541B", attr: { style: "font-size:13px;font-weight:700;color:var(--text-normal)" } });
-    el.createEl("p", {
-      text: "\u55B5\u5B57\u9986\u521B\u59CB\u4EBA | \u72EC\u7ACB\u54C1\u724C\u8BBE\u8BA1\u5E08 | \u8D5B\u535A\u4E50\u5B50\u4EBA",
-      attr: { style: textStyle }
-    });
+    el.getElementsByClassName("atomic-notes-about-text")[el.getElementsByClassName("atomic-notes-about-text").length - 1].setAttr("style", "margin-top:6px");
+    el.createEl("hr", { cls: "atomic-notes-about-divider" });
+    el.createEl("div", { text: "\u4F5C\u8005", cls: "atomic-notes-about-section" });
+    el.createEl("div", { text: "\u7FBD\u9CDE\u541B", cls: "atomic-notes-about-author" });
+    el.createEl("p", { text: "\u55B5\u5B57\u9986\u521B\u59CB\u4EBA | \u72EC\u7ACB\u54C1\u724C\u8BBE\u8BA1\u5E08 | \u8D5B\u535A\u4E50\u5B50\u4EBA", cls: "atomic-notes-about-text" });
     el.createEl("p", {
       text: "\u4EA4\u6D41\u5FAE\u4FE1\uFF1Ayanhu94\uFF08\u5907\u6CE8\uFF1A\u7AF9\u53F6\u98DE\u5203\uFF09",
-      attr: { style: textStyle + ";color:var(--text-faint)" }
+      attr: { style: "color:var(--text-faint);font-size:12px;margin:4px 0" }
     });
   }
   // ─── 进度 UI（存储 DOM 引用供提炼按钮使用） ───
@@ -4553,7 +4631,7 @@ var AtomicNotesPanel = class extends import_obsidian9.ItemView {
           if (this._progressBody)
             this._progressBody.empty();
           this._hideTimer = null;
-        }, 2e3);
+        }, 5e3);
       }
     });
   }
@@ -4561,15 +4639,14 @@ var AtomicNotesPanel = class extends import_obsidian9.ItemView {
   renderDiscovery(container) {
     const settings = this.plugin.settings;
     container.empty();
-    const placeholder = container.createEl("p", {
-      text: "\u6B63\u5728\u5206\u6790\u77E5\u8BC6\u5E93...",
-      attr: { style: "color:var(--text-accent);font-size:12px;padding:8px 16px" }
-    });
+    const placeholder = container.createEl("div", { cls: "atomic-notes-empty-state" });
+    placeholder.createEl("span", { text: "\u{1F504}", cls: "empty-icon" });
+    placeholder.createEl("div", { text: "\u6B63\u5728\u5206\u6790\u77E5\u8BC6\u5E93..." });
     if (!settings.discoveryRecommendation) {
-      container.createEl("p", {
-        text: "\u8BF7\u5728\u8BBE\u7F6E\u4E2D\u5F00\u542F\u81F3\u5C11\u4E00\u4E2A\u53D1\u73B0\u529F\u80FD",
-        attr: { style: "color:var(--text-muted);padding:16px;text-align:center" }
-      });
+      container.createEl("div", { cls: "atomic-notes-empty-state" });
+      const noDiscEl = container.getElementsByClassName("atomic-notes-empty-state")[container.getElementsByClassName("atomic-notes-empty-state").length - 1];
+      noDiscEl.createEl("span", { text: "\u{1F50D}", cls: "empty-icon" });
+      noDiscEl.createEl("div", { text: "\u8BF7\u5728\u8BBE\u7F6E\u4E2D\u5F00\u542F\u81F3\u5C11\u4E00\u4E2A\u53D1\u73B0\u529F\u80FD" });
       placeholder.remove();
       return;
     }
@@ -4591,34 +4668,76 @@ var AtomicNotesPanel = class extends import_obsidian9.ItemView {
     const app = this.app;
     const settings = this.plugin.settings;
     container.createEl("h4", { text: "\u5173\u8054\u63A8\u8350" });
-    const selectEl = container.createEl("select", {
-      attr: { style: "width:100%;margin-bottom:8px;padding:4px;border-radius:4px" }
-    });
-    selectEl.createEl("option", { text: "\u8BF7\u5148\u9009\u62E9\u4E00\u6761\u7B14\u8BB0", value: "" });
     const noteMetas = [];
     const allFiles = app.vault.getMarkdownFiles();
     const files = settings.targetFolder ? allFiles.filter((f) => f.path.startsWith(settings.targetFolder)) : allFiles;
     for (const file of files) {
       const title = file.path.split("/").pop().replace(/\.md$/, "");
-      selectEl.createEl("option", { text: title, value: file.path });
       noteMetas.push({ path: file.path, title });
     }
+    const searchWrap = container.createEl("div", { attr: { style: "position:relative;margin-bottom:8px" } });
+    const searchInput = searchWrap.createEl("input", {
+      attr: {
+        type: "text",
+        placeholder: "\u641C\u7D22\u7B14\u8BB0...",
+        style: "width:100%;font-size:12px;padding:5px 8px;border:1px solid var(--background-modifier-border);border-radius:4px;box-sizing:border-box"
+      }
+    });
+    const dropdown = searchWrap.createEl("div", {
+      attr: {
+        style: "display:none;position:absolute;top:100%;left:0;right:0;max-height:200px;overflow-y:auto;background:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:0 0 4px 4px;z-index:10;box-shadow:0 4px 8px rgba(0,0,0,0.15)"
+      }
+    });
+    let selectedPath = "";
     const resultsContainer = container.createEl("div");
-    selectEl.addEventListener("change", async () => {
-      const selectedPath = selectEl.value;
+    const updateDropdown = (filter = "") => {
+      dropdown.empty();
+      const q = filter.toLowerCase();
+      const matched = q ? noteMetas.filter((m) => m.title.toLowerCase().includes(q)) : noteMetas;
+      if (matched.length === 0) {
+        dropdown.createEl("div", {
+          text: "\u65E0\u5339\u914D\u7B14\u8BB0",
+          attr: { style: "padding:6px 10px;font-size:11px;color:var(--text-muted)" }
+        });
+        dropdown.style.display = "block";
+        return;
+      }
+      const show = matched.slice(0, 50);
+      for (const meta of show) {
+        const item = dropdown.createEl("div", {
+          text: meta.title,
+          attr: { style: "padding:5px 10px;font-size:12px;cursor:pointer;color:var(--text-normal)" }
+        });
+        item.addEventListener("mouseenter", () => {
+          item.style.background = "var(--background-modifier-hover)";
+        });
+        item.addEventListener("mouseleave", () => {
+          item.style.background = "";
+        });
+        item.addEventListener("mousedown", (ev) => {
+          ev.preventDefault();
+          selectedPath = meta.path;
+          searchInput.value = meta.title;
+          dropdown.style.display = "none";
+          runSimilarity();
+        });
+      }
+      dropdown.style.display = "block";
+    };
+    const runSimilarity = async () => {
       if (!selectedPath) {
         resultsContainer.empty();
-        resultsContainer.createEl("p", {
-          text: "\u8BF7\u5148\u9009\u62E9\u4E00\u6761\u7B14\u8BB0",
-          attr: { style: "color:var(--text-muted);font-size:12px" }
-        });
+        resultsContainer.createEl("div", { cls: "atomic-notes-empty-state" });
+        const emptyEl = resultsContainer.getElementsByClassName("atomic-notes-empty-state")[resultsContainer.getElementsByClassName("atomic-notes-empty-state").length - 1];
+        emptyEl.createEl("span", { text: "\u{1F50D}", cls: "empty-icon" });
+        emptyEl.createEl("div", { text: "\u8BF7\u5148\u641C\u7D22\u5E76\u9009\u62E9\u4E00\u6761\u7B14\u8BB0" });
         return;
       }
       resultsContainer.empty();
-      resultsContainer.createEl("p", {
-        text: "\u6B63\u5728\u8BA1\u7B97\u76F8\u4F3C\u5EA6...",
-        attr: { style: "color:var(--text-muted);font-size:12px" }
-      });
+      resultsContainer.createEl("div", { cls: "atomic-notes-empty-state" });
+      const loadEl = resultsContainer.getElementsByClassName("atomic-notes-empty-state")[resultsContainer.getElementsByClassName("atomic-notes-empty-state").length - 1];
+      loadEl.createEl("span", { text: "\u{1F504}", cls: "empty-icon" });
+      loadEl.createEl("div", { text: "\u6B63\u5728\u8BA1\u7B97\u76F8\u4F3C\u5EA6..." });
       try {
         const currentFolder = settings.targetFolder || "";
         const currentCount = files.length;
@@ -4676,7 +4795,18 @@ var AtomicNotesPanel = class extends import_obsidian9.ItemView {
           attr: { style: "color:var(--text-error)" }
         });
       }
+    };
+    searchInput.addEventListener("input", () => {
+      updateDropdown(searchInput.value.trim());
     });
+    searchInput.addEventListener("focus", () => {
+      updateDropdown(searchInput.value.trim());
+    });
+    document.addEventListener("click", (ev) => {
+      if (!searchWrap.contains(ev.target)) {
+        dropdown.style.display = "none";
+      }
+    }, { once: false });
   }
   async onClose() {
     if (this._hideTimer) {
@@ -4739,6 +4869,22 @@ function insertBacklinks(editor, notePaths) {
 }
 
 // src/main.ts
+function friendlyError(error) {
+  const raw = error instanceof Error ? error.message : String(error);
+  if (raw.includes("401") || raw.includes("Unauthorized"))
+    return "API Key \u65E0\u6548\u6216\u5DF2\u8FC7\u671F\uFF0C\u8BF7\u5728\u8BBE\u7F6E\u4E2D\u66F4\u65B0";
+  if (raw.includes("429") || raw.includes("Too Many Requests"))
+    return "\u8BF7\u6C42\u8FC7\u4E8E\u9891\u7E41\u6216\u989D\u5EA6\u4E0D\u8DB3\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5";
+  if (raw.includes("402"))
+    return "API \u989D\u5EA6\u4E0D\u8DB3\uFF0C\u8BF7\u68C0\u67E5\u8D26\u6237\u4F59\u989D";
+  if (raw.includes("500") || raw.includes("502") || raw.includes("503"))
+    return "API \u670D\u52A1\u6682\u65F6\u4E0D\u53EF\u7528\uFF0C\u8BF7\u7A0D\u540E\u91CD\u8BD5";
+  if (raw.includes("timeout") || raw.includes("ETIMEDOUT") || raw.includes("ECONNREFUSED"))
+    return "\u7F51\u7EDC\u8FDE\u63A5\u8D85\u65F6\uFF0C\u8BF7\u68C0\u67E5 API URL \u6216\u7F51\u7EDC\u8BBE\u7F6E";
+  if (raw.includes("Failed to fetch") || raw.includes("network"))
+    return "\u7F51\u7EDC\u8FDE\u63A5\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u7F51\u7EDC\u6216 API URL";
+  return raw;
+}
 var AtomicNotesPlugin = class extends import_obsidian10.Plugin {
   constructor() {
     super(...arguments);
@@ -5032,20 +5178,16 @@ var AtomicNotesPlugin = class extends import_obsidian10.Plugin {
           this.showForceExtractConfirm(input, result.error || "\u5185\u5BB9\u8D28\u91CF\u4E0D\u8FBE\u6807");
           return;
         } else {
-          new import_obsidian10.Notice(`\u63D0\u70BC\u5931\u8D25\uFF1A${result.error}`);
+          this.showErrorModal(input, friendlyError(result.error), opts, false);
         }
         return;
       }
       new import_obsidian10.Notice(`\u63D0\u70BC\u5B8C\u6210\uFF0C\u5171 ${result.notes.length} \u6761\u539F\u5B50\u7B14\u8BB0`);
       if (this.settings.autoSave) {
+        await this.saveAndBacklink(input, result.notes);
         if (result.duplicateHints && result.duplicateHints.length > 0) {
-          new import_obsidian10.Notice(`\u68C0\u6D4B\u5230 ${new Set(result.duplicateHints.map((h) => h.noteIndex)).size} \u7BC7\u7591\u4F3C\u91CD\u590D\u7B14\u8BB0\uFF0C\u8BF7\u786E\u8BA4\u540E\u4FDD\u5B58`);
-          new ResultModal(this.app, result, result.vaultDedupResult, async (notes) => {
-            await this.saveAndBacklink(input, notes);
-          }).open();
-        } else {
-          new import_obsidian10.Notice("\u6B63\u5728\u4FDD\u5B58\u5230\u77E5\u8BC6\u5E93...");
-          await this.saveAndBacklink(input, result.notes);
+          const dupCount = new Set(result.duplicateHints.map((h) => h.noteIndex)).size;
+          new import_obsidian10.Notice(`\u5DF2\u81EA\u52A8\u4FDD\u5B58\uFF08\u542B ${dupCount} \u7BC7\u7591\u4F3C\u91CD\u590D\uFF0C\u4F60\u53EF\u4EE5\u5728\u77E5\u8BC6\u5E93\u4E2D\u6838\u67E5\uFF09`, 5e3);
         }
       } else {
         new ResultModal(this.app, result, result.vaultDedupResult, async (notes) => {
@@ -5057,7 +5199,7 @@ var AtomicNotesPlugin = class extends import_obsidian10.Plugin {
         new import_obsidian10.Notice("\u63D0\u70BC\u5DF2\u53D6\u6D88");
         return;
       }
-      new import_obsidian10.Notice(`\u63D0\u70BC\u5931\u8D25\uFF1A${error instanceof Error ? error.message : String(error)}`);
+      this.showErrorModal(input, friendlyError(error), opts, true);
     } finally {
       this._isExtracting = false;
       this._abortController = null;
@@ -5182,6 +5324,55 @@ var AtomicNotesPlugin = class extends import_obsidian10.Plugin {
           this.close();
           await this.plugin.runExtraction(input, { ...opts, skipDuplicateCheck: true });
         });
+      }
+      onClose() {
+        this.contentEl.empty();
+      }
+    }(this);
+    modal.open();
+  }
+  /**
+   * 提炼失败的错误弹窗（含重试按钮）
+   */
+  showErrorModal(input, errorMsg, opts, retryable) {
+    const modal = new class extends import_obsidian10.Modal {
+      constructor(plugin) {
+        super(plugin.app);
+      }
+      onOpen() {
+        const { contentEl } = this;
+        contentEl.empty();
+        contentEl.createEl("h3", { text: "\u2717 \u63D0\u70BC\u5931\u8D25" });
+        const errorBox = contentEl.createEl("div", {
+          attr: {
+            style: [
+              "background:var(--background-secondary)",
+              "border-left:3px solid var(--color-red)",
+              "border-radius:6px",
+              "padding:10px 14px",
+              "margin:10px 0",
+              "font-size:13px",
+              "color:var(--text-muted)",
+              "word-break:break-word"
+            ].join(";")
+          }
+        });
+        errorBox.setText(errorMsg);
+        const btnRow = contentEl.createEl("div", {
+          attr: { style: "display:flex;gap:10px;justify-content:flex-end;margin-top:16px" }
+        });
+        const closeBtn = btnRow.createEl("button", { text: "\u5173\u95ED" });
+        closeBtn.addEventListener("click", () => this.close());
+        if (retryable) {
+          const retryBtn = btnRow.createEl("button", {
+            text: "\u91CD\u8BD5",
+            attr: { style: "background:var(--interactive-accent);color:#fff;border:none;padding:6px 16px;border-radius:6px;cursor:pointer;font-weight:600" }
+          });
+          retryBtn.addEventListener("click", async () => {
+            this.close();
+            await this.plugin.runExtraction(input, { skipDuplicateCheck: true, skipGate: opts.skipGate });
+          });
+        }
       }
       onClose() {
         this.contentEl.empty();

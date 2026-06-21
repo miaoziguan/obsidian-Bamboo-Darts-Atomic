@@ -70,19 +70,27 @@ export class AtomicNotesPanel extends ItemView {
     container.createEl('h3', { text: '原子笔记提炼' });
 
     // Tab bar
-    const tabBar = container.createEl('div', { cls: 'atomic-notes-tabs' });
-    const tabs = [
-      tabBar.createEl('div', { text: '输入', cls: 'atomic-notes-tab active' }),
-      tabBar.createEl('div', { text: '历史', cls: 'atomic-notes-tab' }),
-      tabBar.createEl('div', { text: '发现', cls: 'atomic-notes-tab' }),
-      tabBar.createEl('div', { text: '介绍', cls: 'atomic-notes-tab' }),
-    ];
+    const tabBar = container.createEl('div', { cls: 'atomic-notes-tabs', attr: { role: 'tablist', 'aria-label': '功能导航' } });
+    const tabLabels = ['输入', '历史', '发现', '介绍'];
+    const tabs: HTMLElement[] = [];
+    for (let i = 0; i < tabLabels.length; i++) {
+      const tab = tabBar.createEl('button', {
+        text: tabLabels[i],
+        cls: 'atomic-notes-tab' + (i === 0 ? ' active' : ''),
+        attr: {
+          role: 'tab',
+          'aria-selected': i === 0 ? 'true' : 'false',
+          'aria-controls': `tab-panel-${i}`,
+        },
+      });
+      tabs.push(tab);
+    }
 
     // Tab content containers
-    const inputPanel = container.createEl('div', { cls: 'atomic-notes-tab-content active' });
-    const historyPanel = container.createEl('div', { cls: 'atomic-notes-tab-content', attr: { style: 'max-height:500px;overflow-y:auto' } });
-    const discoveryPanel = container.createEl('div', { cls: 'atomic-notes-tab-content', attr: { style: 'max-height:500px;overflow-y:auto' } });
-    const aboutPanel = container.createEl('div', { cls: 'atomic-notes-tab-content', attr: { style: 'max-height:500px;overflow-y:auto' } });
+    const inputPanel = container.createEl('div', { cls: 'atomic-notes-tab-content active', attr: { role: 'tabpanel', id: 'tab-panel-0', 'aria-labelledby': tabs[0].id || 'tab-0' } });
+    const historyPanel = container.createEl('div', { cls: 'atomic-notes-tab-content', attr: { style: 'max-height:500px;overflow-y:auto', role: 'tabpanel', id: 'tab-panel-1', 'aria-labelledby': tabs[1].id || 'tab-1' } });
+    const discoveryPanel = container.createEl('div', { cls: 'atomic-notes-tab-content', attr: { style: 'max-height:500px;overflow-y:auto', role: 'tabpanel', id: 'tab-panel-2', 'aria-labelledby': tabs[2].id || 'tab-2' } });
+    const aboutPanel = container.createEl('div', { cls: 'atomic-notes-tab-content', attr: { style: 'max-height:500px;overflow-y:auto', role: 'tabpanel', id: 'tab-panel-3', 'aria-labelledby': tabs[3].id || 'tab-3' } });
     const contentPanels = [inputPanel, historyPanel, discoveryPanel, aboutPanel];
 
     // 进度区域 + 提炼按钮（初始隐藏，在 setupXxx 中创建）
@@ -99,6 +107,7 @@ export class AtomicNotesPanel extends ItemView {
       tabs[i].addEventListener('click', () => {
         for (let j = 0; j < tabs.length; j++) {
           tabs[j].classList.toggle('active', j === i);
+          tabs[j].setAttribute('aria-selected', j === i ? 'true' : 'false');
           contentPanels[j].classList.toggle('active', j === i);
         }
         // 进度区域和按钮只在输入面板显示
@@ -138,7 +147,37 @@ export class AtomicNotesPanel extends ItemView {
     // textarea（文本模式）
     const textarea = panel.createEl('textarea', {
       cls: 'atomic-notes-textarea',
-      attr: { placeholder: '在此粘贴要提炼的文本...' },
+      attr: { placeholder: '在此粘贴要提炼的文本（或拖入 .md / .txt 文件）...' },
+    });
+
+    // 拖拽导入支持
+    textarea.addEventListener('dragover', (ev: DragEvent) => {
+      ev.preventDefault();
+      if (ev.dataTransfer) ev.dataTransfer.dropEffect = 'copy';
+      textarea.addClass('atomic-notes-drop-active');
+    });
+    textarea.addEventListener('dragleave', () => {
+      textarea.removeClass('atomic-notes-drop-active');
+    });
+    textarea.addEventListener('drop', async (ev: DragEvent) => {
+      ev.preventDefault();
+      textarea.removeClass('atomic-notes-drop-active');
+      const files = ev.dataTransfer?.files;
+      if (!files || files.length === 0) return;
+      const file = files[0];
+      const name = file.name.toLowerCase();
+      if (!name.endsWith('.md') && !name.endsWith('.txt')) {
+        new Notice('仅支持 .md 和 .txt 文件');
+        return;
+      }
+      try {
+        const text = await file.text();
+        textarea.value = text;
+        charCountEl.setText(`${text.length} 字`);
+        new Notice(`已导入 ${file.name}（${text.length} 字）`);
+      } catch {
+        new Notice(`读取文件失败：${file.name}`);
+      }
     });
 
     // 底部信息栏（文本模式）
@@ -249,10 +288,10 @@ export class AtomicNotesPanel extends ItemView {
     const history: ExtractionHistoryEntry[] = this.plugin.settings.extractionHistory || [];
 
     if (history.length === 0) {
-      el.createEl('p', {
-        text: '暂无提炼历史',
-        attr: { style: 'color:var(--text-muted);padding:16px;text-align:center' },
-      });
+      el.createEl('div', { cls: 'atomic-notes-empty-state' });
+      const emptyEl = el.getElementsByClassName('atomic-notes-empty-state')[el.getElementsByClassName('atomic-notes-empty-state').length - 1];
+      emptyEl.createEl('span', { text: '📝', cls: 'empty-icon' });
+      emptyEl.createEl('div', { text: '暂无提炼历史' });
       return;
     }
 
@@ -384,38 +423,29 @@ export class AtomicNotesPanel extends ItemView {
 
   private renderAboutPanel(el: HTMLElement): void {
     el.empty();
-    el.setAttr('style', 'padding:0 2px');
-
-    const sectionStyle = 'margin:16px 0 8px;font-size:14px;font-weight:700;color:var(--text-normal);padding-bottom:4px;border-bottom:1px solid var(--background-modifier-border)';
-    const textStyle = 'font-size:12px;color:var(--text-muted);line-height:1.7;margin:4px 0';
+    el.addClass('atomic-notes-panel');
 
     // ── 竹叶飞刃设计理念 ──
-    el.createEl('div', { text: '竹叶飞刃设计理念', attr: { style: sectionStyle } });
+    el.createEl('div', { text: '竹叶飞刃设计理念', cls: 'atomic-notes-about-section' });
 
-    el.createEl('div', {
-      text: '用法一：提炼知识节点',
-      attr: { style: 'font-size:12px;font-weight:600;color:var(--text-accent);margin:8px 0 4px' },
-    });
+    el.createEl('div', { text: '用法一：提炼知识节点', cls: 'atomic-notes-about-subtitle' });
     el.createEl('p', {
       text: '原子笔记是一段独立、完整、可直接复用的知识单元。每条笔记围绕单一概念，不依赖上下文即可理解。AI 提炼的价值不在于替代思考，而在于强制对信息进行压缩和结构化——把模糊的阅读感受转化为可检索、可关联的知识节点。',
-      attr: { style: textStyle },
+      cls: 'atomic-notes-about-text',
     });
 
-    el.createEl('div', {
-      text: '用法二：对抗信息垃圾',
-      attr: { style: 'font-size:12px;font-weight:600;color:var(--text-accent);margin:12px 0 4px' },
-    });
+    el.createEl('div', { text: '用法二：对抗信息垃圾', cls: 'atomic-notes-about-subtitle' });
     el.createEl('p', {
       text: 'AI 时代的内容生产速度远超人类的阅读速度。大量文章看似洋洋洒洒，实则信息密度极低——翻来覆去讲同一句话、堆砌 SEO 关键词、填充无意义的过渡段落。',
-      attr: { style: textStyle },
+      cls: 'atomic-notes-about-text',
     });
     el.createEl('p', {
       text: '本插件的质量门控和复查机制正是为此设计：前置过滤噪声内容，AI 提炼后二次评分，帮你把时间花在真正值得读的信息上，而不是被注水文章消耗注意力。',
-      attr: { style: textStyle },
+      cls: 'atomic-notes-about-text',
     });
 
     // ── 处理流程 ──
-    el.createEl('div', { text: '处理流程', attr: { style: sectionStyle } });
+    el.createEl('div', { text: '处理流程', cls: 'atomic-notes-about-section' });
     const phases = [
       ['Phase 1', '读取内容', '从文本、URL 或剪贴板获取原始内容'],
       ['Phase 2', '质量门控', '9 层规则前置过滤低质/噪声内容，硬拦+软警告'],
@@ -426,40 +456,28 @@ export class AtomicNotesPanel extends ItemView {
       ['Phase 6', '笔记复查', 'AI 二次评分，过滤低价值笔记'],
     ];
     for (const [phase, name, desc] of phases) {
-      const row = el.createEl('div', { attr: { style: 'display:flex;gap:8px;padding:4px 0' } });
-      row.createEl('span', { text: phase, attr: { style: 'font-size:11px;color:var(--text-accent);flex-shrink:0;min-width:52px' } });
-      row.createEl('span', { text: name, attr: { style: 'font-size:12px;font-weight:600;flex-shrink:0;min-width:56px' } });
-      row.createEl('span', { text: desc, attr: { style: 'font-size:11px;color:var(--text-muted)' } });
+      const row = el.createEl('div', { cls: 'atomic-notes-about-phase-row' });
+      row.createEl('span', { text: phase, cls: 'phase-tag' });
+      row.createEl('span', { text: name, cls: 'phase-name' });
+      row.createEl('span', { text: desc, cls: 'phase-desc' });
     }
 
     // ── 去重算法 ──
-    el.createEl('div', { text: '去重算法', attr: { style: sectionStyle } });
-    el.createEl('p', {
-      text: 'Phase 4 与 Phase 4b 采用 TF-IDF + 余弦相似度算法：',
-      attr: { style: textStyle },
-    });
-    el.createEl('div', {
-      text: '• 中文按字符 3-gram（英文按完整词）提取 token',
-      attr: { style: textStyle + ';padding-left:10px' },
-    });
-    el.createEl('div', {
-      text: '• 每篇文档转化为 TF-IDF 向量，两篇相似度通过向量余弦计算',
-      attr: { style: textStyle + ';padding-left:10px' },
-    });
-    el.createEl('div', {
-      text: '• 相比关键词匹配，对同义词、换说法、近义词更鲁棒',
-      attr: { style: textStyle + ';padding-left:10px' },
-    });
+    el.createEl('div', { text: '去重算法', cls: 'atomic-notes-about-section' });
+    el.createEl('p', { text: 'Phase 4 与 Phase 4b 采用 TF-IDF + 余弦相似度算法：', cls: 'atomic-notes-about-text' });
+    el.createEl('div', { text: '• 中文按字符 3-gram（英文按完整词）提取 token', cls: 'atomic-notes-about-bullet' });
+    el.createEl('div', { text: '• 每篇文档转化为 TF-IDF 向量，两篇相似度通过向量余弦计算', cls: 'atomic-notes-about-bullet' });
+    el.createEl('div', { text: '• 相比关键词匹配，对同义词、换说法、近义词更鲁棒', cls: 'atomic-notes-about-bullet' });
     el.createEl('p', {
       text: '知识库去重默认读取目标文件夹内容，可在设置中独立指定"去重目标文件夹"，适合有隐私需求用户限制去重范围。',
-      attr: { style: textStyle },
+      cls: 'atomic-notes-about-text',
     });
 
     // ── 实时进度反馈 ──
-    el.createEl('div', { text: '实时进度反馈', attr: { style: sectionStyle } });
+    el.createEl('div', { text: '实时进度反馈', cls: 'atomic-notes-about-section' });
     el.createEl('p', {
       text: '提炼过程中每一步都实时显示当前阶段名称、耗时、子进度，可随时点击"取消"终止流程。',
-      attr: { style: textStyle },
+      cls: 'atomic-notes-about-text',
     });
     const progressItems = [
       ['Phase 1', '输入文本读取'],
@@ -470,13 +488,13 @@ export class AtomicNotesPanel extends ItemView {
       ['Phase 6', '复查评分'],
     ];
     for (const [phase, detail] of progressItems) {
-      const row = el.createEl('div', { attr: { style: 'display:flex;gap:8px;padding:2px 0 2px 12px' } });
-      row.createEl('span', { text: phase, attr: { style: 'font-size:11px;color:var(--text-accent);font-weight:600;min-width:72px' } });
-      row.createEl('span', { text: detail, attr: { style: 'font-size:11px;color:var(--text-muted)' } });
+      const row = el.createEl('div', { cls: 'atomic-notes-about-detail-row' });
+      row.createEl('span', { text: phase, cls: 'detail-label' });
+      row.createEl('span', { text: detail, cls: 'detail-desc' });
     }
 
     // ── 质量门控 ──
-    el.createEl('div', { text: '质量门控', attr: { style: sectionStyle } });
+    el.createEl('div', { text: '质量门控', cls: 'atomic-notes-about-section' });
     const gateRules = [
       ['长度', '< 50 字', '50-200 字 / > 50000 字'],
       ['信息密度', '< 10%（严重重复）', '< 30%（疑似水文）'],
@@ -488,83 +506,65 @@ export class AtomicNotesPanel extends ItemView {
       ['质量评分', '≤ 1 分（垃圾）', '2 分（存疑）'],
       ['重复检测', '> 50% 相似度', '—'],
     ];
-    const gateHeader = el.createEl('div', { attr: { style: 'display:flex;gap:8px;padding:2px 0;font-size:11px;color:var(--text-faint)' } });
-    gateHeader.createEl('span', { text: '规则', attr: { style: 'min-width:64px' } });
-    gateHeader.createEl('span', { text: '硬阻断', attr: { style: 'min-width:100px' } });
-    gateHeader.createEl('span', { text: '软警告' });
+    const gateHeader = el.createEl('div', { cls: 'atomic-notes-gate-table-header' });
+    gateHeader.createEl('span', { text: '规则', cls: 'gate-col-rule' });
+    gateHeader.createEl('span', { text: '硬阻断', cls: 'gate-col-block' });
+    gateHeader.createEl('span', { text: '软警告', cls: 'gate-col-warn' });
     for (const [rule, block, warn] of gateRules) {
-      const row = el.createEl('div', { attr: { style: 'display:flex;gap:8px;padding:3px 0;font-size:11px;border-top:1px solid var(--background-modifier-border)' } });
-      row.createEl('span', { text: rule, attr: { style: 'min-width:64px;font-weight:600;color:var(--text-normal)' } });
-      row.createEl('span', { text: block, attr: { style: 'min-width:100px;color:var(--text-error)' } });
-      row.createEl('span', { text: warn, attr: { style: 'color:var(--text-warning)' } });
+      const row = el.createEl('div', { cls: 'atomic-notes-gate-row' });
+      row.createEl('span', { text: rule, cls: 'gate-col-rule' });
+      row.createEl('span', { text: block, cls: 'gate-col-block' });
+      row.createEl('span', { text: warn, cls: 'gate-col-warn' });
     }
     el.createEl('p', {
       text: '硬阻断的规则命中后直接拒绝提交流程；软警告仅提醒用户，不影响继续提炼。',
-      attr: { style: textStyle + ';margin-top:8px' },
+      cls: 'atomic-notes-about-text',
     });
+    el.getElementsByClassName('atomic-notes-about-text')[el.getElementsByClassName('atomic-notes-about-text').length - 1].setAttr('style', 'margin-top:8px');
 
     // ── 内容核查（三层管线）──
-    el.createEl('div', { text: '内容核查（三层管线）', attr: { style: sectionStyle } });
-    el.createEl('p', {
-      text: '从每条笔记中提取事实声明（数字、百分比、日期、实体名称），通过三层管线逐条核查：',
-      attr: { style: textStyle },
-    });
-    el.createEl('div', {
-      text: 'Layer 1 · 原文溯源：零 API 调用，在原文中精确或模糊匹配声明锚点',
-      attr: { style: textStyle + ';padding-left:10px' },
-    });
-    el.createEl('div', {
-      text: 'Layer 2 · 语义比对：单次 AI 调用，对无法溯源的声明进行语义级别比对',
-      attr: { style: textStyle + ';padding-left:10px' },
-    });
-    el.createEl('div', {
-      text: 'Layer 3 · 超源标记：零 API 调用，将超出原文范围的声明标记为"超源"',
-      attr: { style: textStyle + ';padding-left:10px' },
-    });
+    el.createEl('div', { text: '内容核查（三层管线）', cls: 'atomic-notes-about-section' });
+    el.createEl('p', { text: '从每条笔记中提取事实声明（数字、百分比、日期、实体名称），通过三层管线逐条核查：', cls: 'atomic-notes-about-text' });
+    el.createEl('div', { text: 'Layer 1 · 原文溯源：零 API 调用，在原文中精确或模糊匹配声明锚点', cls: 'atomic-notes-about-bullet' });
+    el.createEl('div', { text: 'Layer 2 · 语义比对：单次 AI 调用，对无法溯源的声明进行语义级别比对', cls: 'atomic-notes-about-bullet' });
+    el.createEl('div', { text: 'Layer 3 · 超源标记：零 API 调用，将超出原文范围的声明标记为"超源"', cls: 'atomic-notes-about-bullet' });
     const verifyStatus = [
       ['已溯源', '声明与原文一致或可推导'],
       ['需对比', '部分相关但存在差异，需人工确认'],
       ['超源', '声明超出原文范围，无法直接验证'],
     ];
     for (const [status, desc] of verifyStatus) {
-      const row = el.createEl('div', { attr: { style: 'display:flex;gap:8px;padding:2px 0 2px 12px' } });
-      row.createEl('span', { text: status, attr: { style: 'font-size:12px;font-weight:600;min-width:56px;color:var(--text-accent)' } });
-      row.createEl('span', { text: desc, attr: { style: 'font-size:11px;color:var(--text-muted)' } });
+      const row = el.createEl('div', { cls: 'atomic-notes-about-detail-row' });
+      row.createEl('span', { text: status, cls: 'detail-label', attr: { style: 'min-width:56px;color:var(--text-accent)' } });
+      row.createEl('span', { text: desc, cls: 'detail-desc' });
     }
 
     // ── 复查机制 ──
-    el.createEl('div', { text: '复查机制', attr: { style: sectionStyle } });
-    el.createEl('p', {
-      text: '开启后 AI 从两个维度对每条笔记打分（1-5 分）：',
-      attr: { style: textStyle },
-    });
+    el.createEl('div', { text: '复查机制', cls: 'atomic-notes-about-section' });
+    el.createEl('p', { text: '开启后 AI 从两个维度对每条笔记打分（1-5 分）：', cls: 'atomic-notes-about-text' });
     const scoreItems = [
       ['洞察力分', '是否包含独立观点或独特视角'],
       ['知识价值分', '是否能为读者提供可迁移的领域知识'],
     ];
     for (const [label, desc] of scoreItems) {
-      const row = el.createEl('div', { attr: { style: 'display:flex;gap:8px;padding:2px 0 2px 12px' } });
-      row.createEl('span', { text: label, attr: { style: 'font-size:12px;font-weight:600;min-width:72px' } });
-      row.createEl('span', { text: desc, attr: { style: 'font-size:11px;color:var(--text-muted)' } });
+      const row = el.createEl('div', { cls: 'atomic-notes-about-detail-row' });
+      row.createEl('span', { text: label, cls: 'detail-label' });
+      row.createEl('span', { text: desc, cls: 'detail-desc' });
     }
     el.createEl('p', {
       text: '总分 < 3 的笔记被自动过滤，不进入知识库。这是提炼后的最后一道质量防线。',
-      attr: { style: textStyle + ';margin-top:6px' },
+      cls: 'atomic-notes-about-text',
     });
+    el.getElementsByClassName('atomic-notes-about-text')[el.getElementsByClassName('atomic-notes-about-text').length - 1].setAttr('style', 'margin-top:6px');
 
     // ── 作者 ──
-    el.createEl('hr', {
-      attr: { style: 'margin:20px 0 12px;border:none;border-top:1px solid var(--background-modifier-border)' },
-    });
-    el.createEl('div', { text: '作者', attr: { style: sectionStyle } });
-    el.createEl('div', { text: '羽鳞君', attr: { style: 'font-size:13px;font-weight:700;color:var(--text-normal)' } });
-    el.createEl('p', {
-      text: '喵字馆创始人 | 独立品牌设计师 | 赛博乐子人',
-      attr: { style: textStyle },
-    });
+    el.createEl('hr', { cls: 'atomic-notes-about-divider' });
+    el.createEl('div', { text: '作者', cls: 'atomic-notes-about-section' });
+    el.createEl('div', { text: '羽鳞君', cls: 'atomic-notes-about-author' });
+    el.createEl('p', { text: '喵字馆创始人 | 独立品牌设计师 | 赛博乐子人', cls: 'atomic-notes-about-text' });
     el.createEl('p', {
       text: '交流微信：yanhu94（备注：竹叶飞刃）',
-      attr: { style: textStyle + ';color:var(--text-faint)' },
+      attr: { style: 'color:var(--text-faint);font-size:12px;margin:4px 0' },
     });
   }
 
@@ -684,7 +684,7 @@ export class AtomicNotesPanel extends ItemView {
           if (this._progressWrap) this._progressWrap.style.display = 'none';
           if (this._progressBody) this._progressBody.empty();
           this._hideTimer = null;
-        }, 2000);
+        }, 5000);
       }
     });
   }
@@ -695,16 +695,15 @@ export class AtomicNotesPanel extends ItemView {
     const settings = this.plugin.settings;
     container.empty();
 
-    const placeholder = container.createEl('p', {
-      text: '正在分析知识库...',
-      attr: { style: 'color:var(--text-accent);font-size:12px;padding:8px 16px' },
-    });
+    const placeholder = container.createEl('div', { cls: 'atomic-notes-empty-state' });
+    placeholder.createEl('span', { text: '🔄', cls: 'empty-icon' });
+    placeholder.createEl('div', { text: '正在分析知识库...' });
 
     if (!settings.discoveryRecommendation) {
-      container.createEl('p', {
-        text: '请在设置中开启至少一个发现功能',
-        attr: { style: 'color:var(--text-muted);padding:16px;text-align:center' },
-      });
+      container.createEl('div', { cls: 'atomic-notes-empty-state' });
+      const noDiscEl = container.getElementsByClassName('atomic-notes-empty-state')[container.getElementsByClassName('atomic-notes-empty-state').length - 1];
+      noDiscEl.createEl('span', { text: '🔍', cls: 'empty-icon' });
+      noDiscEl.createEl('div', { text: '请在设置中开启至少一个发现功能' });
       placeholder.remove();
       return;
     }
@@ -732,11 +731,6 @@ export class AtomicNotesPanel extends ItemView {
 
     container.createEl('h4', { text: '关联推荐' });
 
-    const selectEl = container.createEl('select', {
-      attr: { style: 'width:100%;margin-bottom:8px;padding:4px;border-radius:4px' },
-    });
-    selectEl.createEl('option', { text: '请先选择一条笔记', value: '' });
-
     const noteMetas: { path: string; title: string }[] = [];
     const allFiles = app.vault.getMarkdownFiles();
     const files = settings.targetFolder
@@ -745,31 +739,81 @@ export class AtomicNotesPanel extends ItemView {
 
     for (const file of files) {
       const title = file.path.split('/').pop()!.replace(/\.md$/, '');
-      selectEl.createEl('option', { text: title, value: file.path });
       noteMetas.push({ path: file.path, title });
     }
 
+    // 搜索式选择器
+    const searchWrap = container.createEl('div', { attr: { style: 'position:relative;margin-bottom:8px' } });
+    const searchInput = searchWrap.createEl('input', {
+      attr: {
+        type: 'text',
+        placeholder: '搜索笔记...',
+        style: 'width:100%;font-size:12px;padding:5px 8px;border:1px solid var(--background-modifier-border);border-radius:4px;box-sizing:border-box',
+      },
+    }) as HTMLInputElement;
+    const dropdown = searchWrap.createEl('div', {
+      attr: {
+        style: 'display:none;position:absolute;top:100%;left:0;right:0;max-height:200px;overflow-y:auto;background:var(--background-primary);border:1px solid var(--background-modifier-border);border-radius:0 0 4px 4px;z-index:10;box-shadow:0 4px 8px rgba(0,0,0,0.15)',
+      },
+    });
+
+    let selectedPath = '';
     const resultsContainer = container.createEl('div');
 
-    selectEl.addEventListener('change', async () => {
-      const selectedPath = selectEl.value;
+    const updateDropdown = (filter = '') => {
+      dropdown.empty();
+      const q = filter.toLowerCase();
+      const matched = q
+        ? noteMetas.filter(m => m.title.toLowerCase().includes(q))
+        : noteMetas;
+      if (matched.length === 0) {
+        dropdown.createEl('div', {
+          text: '无匹配笔记',
+          attr: { style: 'padding:6px 10px;font-size:11px;color:var(--text-muted)' },
+        });
+        dropdown.style.display = 'block';
+        return;
+      }
+      const show = matched.slice(0, 50); // 最多显示 50 条
+      for (const meta of show) {
+        const item = dropdown.createEl('div', {
+          text: meta.title,
+          attr: { style: 'padding:5px 10px;font-size:12px;cursor:pointer;color:var(--text-normal)' },
+        });
+        item.addEventListener('mouseenter', () => {
+          item.style.background = 'var(--background-modifier-hover)';
+        });
+        item.addEventListener('mouseleave', () => {
+          item.style.background = '';
+        });
+        item.addEventListener('mousedown', (ev) => {
+          ev.preventDefault(); // 防止 focus 丢失
+          selectedPath = meta.path;
+          searchInput.value = meta.title;
+          dropdown.style.display = 'none';
+          runSimilarity();
+        });
+      }
+      dropdown.style.display = 'block';
+    };
+
+    const runSimilarity = async () => {
       if (!selectedPath) {
         resultsContainer.empty();
-        resultsContainer.createEl('p', {
-          text: '请先选择一条笔记',
-          attr: { style: 'color:var(--text-muted);font-size:12px' },
-        });
+        resultsContainer.createEl('div', { cls: 'atomic-notes-empty-state' });
+        const emptyEl = resultsContainer.getElementsByClassName('atomic-notes-empty-state')[resultsContainer.getElementsByClassName('atomic-notes-empty-state').length - 1];
+        emptyEl.createEl('span', { text: '🔍', cls: 'empty-icon' });
+        emptyEl.createEl('div', { text: '请先搜索并选择一条笔记' });
         return;
       }
 
       resultsContainer.empty();
-      resultsContainer.createEl('p', {
-        text: '正在计算相似度...',
-        attr: { style: 'color:var(--text-muted);font-size:12px' },
-      });
+      resultsContainer.createEl('div', { cls: 'atomic-notes-empty-state' });
+      const loadEl = resultsContainer.getElementsByClassName('atomic-notes-empty-state')[resultsContainer.getElementsByClassName('atomic-notes-empty-state').length - 1];
+      loadEl.createEl('span', { text: '🔄', cls: 'empty-icon' });
+      loadEl.createEl('div', { text: '正在计算相似度...' });
 
       try {
-        // 使用缓存的相似度矩阵（同文件夹且笔记数量未变时复用）
         const currentFolder = settings.targetFolder || '';
         const currentCount = files.length;
         if (!this._simCache || this._simCache.folder !== currentFolder || this._simCache.noteCount !== currentCount) {
@@ -784,7 +828,6 @@ export class AtomicNotesPanel extends ItemView {
         const notes = this._simCache.notes;
         const matrix = this._simCache.matrix;
         const idx = notes.findIndex((n: NoteMeta) => n.path === selectedPath);
-
         if (idx < 0) {
           resultsContainer.empty();
           resultsContainer.createEl('p', { text: '未找到该笔记', attr: { style: 'color:var(--text-muted)' } });
@@ -831,7 +874,21 @@ export class AtomicNotesPanel extends ItemView {
           attr: { style: 'color:var(--text-error)' },
         });
       }
+    };
+
+    // 搜索输入事件
+    searchInput.addEventListener('input', () => {
+      updateDropdown(searchInput.value.trim());
     });
+    searchInput.addEventListener('focus', () => {
+      updateDropdown(searchInput.value.trim());
+    });
+    // 点击外部关闭下拉
+    document.addEventListener('click', (ev) => {
+      if (!searchWrap.contains(ev.target as Node)) {
+        dropdown.style.display = 'none';
+      }
+    }, { once: false });
   }
 
   async onClose(): Promise<void> {
