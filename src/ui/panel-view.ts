@@ -33,6 +33,8 @@ interface InputElements {
 export class AtomicNotesPanel extends ItemView {
   private plugin: AtomicNotesPlugin;
   private _hideTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 历史面板中当前处于确认态的删除按钮（用于互斥管理） */
+  private _confirmingDelBtn: { el: HTMLElement; timeout: ReturnType<typeof setTimeout> } | null = null;
 
   /** 进度 UI 元素引用 */
   private _progressWrap: HTMLElement | null = null;
@@ -387,19 +389,31 @@ export class AtomicNotesPanel extends ItemView {
       let delConfirming = false;
       delBtn.addEventListener('click', async () => {
         if (!delConfirming) {
+          // 如果另一个按钮正在确认态，先复原
+          if (this._confirmingDelBtn) {
+            clearTimeout(this._confirmingDelBtn.timeout);
+            this._confirmingDelBtn.el.setText('\u00D7');
+            this._confirmingDelBtn.el.style.color = 'var(--text-muted)';
+            this._confirmingDelBtn = null;
+          }
           delConfirming = true;
           delBtn.setText('确认?');
           delBtn.style.color = 'var(--color-red)';
-          // 3 秒后自动恢复
-          setTimeout(() => {
+          const timeout = setTimeout(() => {
             if (delConfirming) {
               delConfirming = false;
               delBtn.setText('\u00D7');
               delBtn.style.color = 'var(--text-muted)';
             }
+            if (this._confirmingDelBtn?.el === delBtn) {
+              this._confirmingDelBtn = null;
+            }
           }, 3000);
+          this._confirmingDelBtn = { el: delBtn, timeout };
           return;
         }
+        clearTimeout(this._confirmingDelBtn?.timeout);
+        this._confirmingDelBtn = null;
         this.plugin.settings.extractionHistory!.splice(idx, 1);
         await this.plugin.saveSettings();
         this.renderHistoryPanel(el);
@@ -430,7 +444,8 @@ export class AtomicNotesPanel extends ItemView {
         attr: { style: 'margin:8px auto;display:block;padding:4px 16px;font-size:12px;cursor:pointer' },
       });
       loadMoreBtn.addEventListener('click', () => {
-        for (let i = total - 21; i >= 0; i--) {
+        // 显示所有隐藏的条目（children[20] 起为先前隐藏的部分）
+        for (let i = 20; i < total; i++) {
           (listEl.children[i] as HTMLElement).style.display = '';
         }
         loadMoreBtn.remove();
@@ -631,6 +646,12 @@ export class AtomicNotesPanel extends ItemView {
         inputData = { type: 'text', content: inputContent };
       }
 
+      // 清除旧的进度隐藏定时器（防止再次提炼时被意外隐藏）
+      if (this._hideTimer) {
+        clearTimeout(this._hideTimer);
+        this._hideTimer = null;
+      }
+
       // 重置进度显示区域
       if (this._progressWrap) this._progressWrap.style.display = '';
       if (this._progressTitle) this._progressTitle.setText('正在提炼原子笔记...');
@@ -809,7 +830,8 @@ export class AtomicNotesPanel extends ItemView {
 
       try {
         const currentFolder = settings.targetFolder || '';
-        const currentCount = files.length;
+        // limit 对齐 buildSimilarityMatrix 内部的 Math.min(files.length, 500)
+        const currentCount = Math.min(files.length, 500);
         if (!this._simCache || this._simCache.folder !== currentFolder || this._simCache.noteCount !== currentCount) {
           const built = await buildSimilarityMatrix(app.vault, settings.targetFolder);
           this._simCache = {

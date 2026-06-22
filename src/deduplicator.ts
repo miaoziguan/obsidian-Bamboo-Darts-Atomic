@@ -1,7 +1,7 @@
 /**
- * 去重模块（Phase 5-6）
- * - Phase 5: 同批交叉去重
- * - Phase 6: 知识库去重比对（TF-IDF + 余弦相似度）
+ * 去重模块（Phase 4 / 4b）
+ * - Phase 4: 同批交叉去重
+ * - Phase 4b: 知识库去重比对（TF-IDF + 余弦相似度）
  *
  * 【相似度算法说明】
  * 本模块使用「TF-IDF + 余弦相似度」：
@@ -25,6 +25,7 @@ import {
 } from './constants';
 import { simhash, hammingDistance } from './utils/simhash';
 import { SemanticDedupManager } from './utils/embedding';
+import { jaccardSimilarity } from './utils/jaccard';
 
 // ─── Token 化 ───
 
@@ -56,7 +57,7 @@ interface IdfTable {
  * @param docTokens 每篇文档的 token 频次表
  * @param docCount 文档总数（用于平滑，docTokens 可能只是已有笔记）
  */
-function computeIdfTable(docTokens: Array<Map<string, number>>, docCount?: number): IdfTable {
+function computeIdfTable(docTokens: Array<Map<string, number>>, docCount?: number): IdfTable & { dfCounts: Map<string, number> } {
   const N = docCount || docTokens.length || 1;
   const docFreq = new Map<string, number>();
 
@@ -71,7 +72,7 @@ function computeIdfTable(docTokens: Array<Map<string, number>>, docCount?: numbe
     idf.set(token, Math.log((N + IDF_SMOOTH) / (df + IDF_SMOOTH)) + 1);
   }
 
-  return { docCount: N, idf };
+  return { docCount: N, idf, dfCounts: docFreq };
 }
 
 /**
@@ -157,6 +158,8 @@ export interface DuplicateInfo {
   removedContent: string;
   /** 语义相似度（启用语义去重时才有值） */
   semanticSimilarity?: number;
+  /** 本地算法相似度（BM25 + SimHash），合并前 */
+  localSimilarity?: number;
 }
 
 export interface DedupResult {
@@ -175,6 +178,8 @@ export interface VaultMatchInfo {
   } | null;
   /** 语义相似度（启用语义去重时才有值） */
   semanticSimilarity?: number;
+  /** 本地算法相似度（BM25 + SimHash），合并前 */
+  localSimilarity?: number;
   /** 语义匹配路径（本地无匹配、语义超阈值时填入 bestMatch） */
   semanticMatchPath?: string;
 }
@@ -198,6 +203,8 @@ interface CachedNote {
 interface DedupCache {
   notes: CachedNote[];
   idfTable: IdfTable;
+  /** token → 原始文档频率（用于增量 IDF 更新） */
+  dfCounts: Map<string, number>;
   targetFolder: string;  // 按文件夹隔离缓存
   timestamp: number;
 }
@@ -213,29 +220,86 @@ class DedupCacheManager {
     this.caches.clear();
   }
 
-  /** 获取某文件夹的缓存（若未过期且文件未变动） */
+  /** 获取某文件夹的缓存，自动增量更新变动文件 */
   get(targetFolder: string, vault: Vault): DedupCache | null {
     const cached = this.caches.get(targetFolder);
     if (!cached) return null;
-    if (Date.now() - cached.timestamp > DEDUP_CACHE_TTL) return null;
+    if (Date.now() - cached.timestamp > DEDUP_CACHE_TTL) {
+      this.caches.delete(targetFolder);
+      return null;
+    }
 
-    // 验证文件未变动
+    // 索引缓存笔记路径
+    const cacheByPath = new Map(cached.notes.map(n => [n.path, n]));
+
+    // 当前 vault 中的文件
+    const allFiles = vault.getMarkdownFiles();
+    const folderFiles = allFiles.filter(f => isPathInFolder(f.path, targetFolder));
+    const vaultPathSet = new Set(folderFiles.map(f => f.path));
+
+    // 删除/变动的文件：移除 DF 贡献并剔除
     for (const note of cached.notes) {
       const file = vault.getAbstractFileByPath(note.path);
       if (!(file instanceof TFile) || file.stat.mtime !== note.mtime) {
-        return null;
+        for (const token of note.tokens.keys()) {
+          const count = cached.dfCounts.get(token) || 0;
+          if (count <= 1) cached.dfCounts.delete(token);
+          else cached.dfCounts.set(token, count - 1);
+        }
+        cacheByPath.delete(note.path);
       }
     }
+
+    // 无变动 → 直接返回
+    const allValid = cacheByPath.size === cached.notes.length
+      && folderFiles.length === cached.notes.length;
+    if (allValid) return cached;
+
+    // 有变动 → 重建仅变动部分
+    cached.notes = [...cacheByPath.values()];
+
+    // 如果变动超过一半，全量重建更划算
+    if (cacheByPath.size < folderFiles.length * 0.5) {
+      this.caches.delete(targetFolder);
+      return null;
+    }
+
+    // 有新增文件 → 放弃（需要异步读文件），走全量重建
+    if (folderFiles.length !== cacheByPath.size) {
+      this.caches.delete(targetFolder);
+      return null;
+    }
+
+    // 仅编辑/删除 → 增量更新 IDF
+    const idfTable = cached.idfTable;
+    idfTable.docCount = cached.notes.length;
+    idfTable.idf.clear();
+    for (const [token, df] of cached.dfCounts) {
+      idfTable.idf.set(token, Math.log((idfTable.docCount + IDF_SMOOTH) / (df + IDF_SMOOTH)) + 1);
+    }
+
     return cached;
   }
 
   /** 更新某文件夹的缓存 */
-  set(targetFolder: string, notes: CachedNote[], idfTable: IdfTable): void {
-    this.caches.set(targetFolder, { notes, idfTable, targetFolder, timestamp: Date.now() });
+  set(targetFolder: string, notes: CachedNote[], idfTable: IdfTable, dfCounts: Map<string, number>): void {
+    this.caches.set(targetFolder, { notes, idfTable, dfCounts, targetFolder, timestamp: Date.now() });
   }
 }
 
-const defaultDedupCache = new DedupCacheManager();
+let _defaultDedupCache: DedupCacheManager | null = null;
+
+export function getDefaultDedupCache(): DedupCacheManager {
+  if (!_defaultDedupCache) {
+    _defaultDedupCache = new DedupCacheManager();
+  }
+  return _defaultDedupCache;
+}
+
+export function clearDedupCache(): void {
+  _defaultDedupCache?.invalidate();
+  _defaultDedupCache = null;
+}
 
 // ─── 辅助：路径边界检查 ───
 
@@ -249,37 +313,28 @@ export function isPathInFolder(filePath: string, targetFolder: string): boolean 
 
 // ─── 辅助函数 ───
 
-/** Jaccard 系数：两集合交集大小 / 并集大小 */
-function jaccardSimilarity(a: Set<string> | string[], b: Set<string> | string[]): number {
-  const setA = a instanceof Set ? a : new Set(a);
-  const setB = b instanceof Set ? b : new Set(b);
-  if (setA.size === 0 && setB.size === 0) return 0;
-  let intersection = 0;
-  for (const item of setA) {
-    if (setB.has(item)) intersection++;
-  }
-  return intersection / (setA.size + setB.size - intersection);
-}
-
 /** 字符级编辑距离（Levenshtein），归一化为相似度 */
 function editSimilarity(a: string, b: string): number {
   const m = a.length, n = b.length;
   if (m === 0 || n === 0) return 0;
-  const prev = new Uint16Array(n + 1);
-  const curr = new Uint16Array(n + 1);
+
+  let prev = new Uint16Array(n + 1);
+  let curr = new Uint16Array(n + 1);
   for (let j = 0; j <= n; j++) prev[j] = j;
+
   for (let i = 1; i <= m; i++) {
     curr[0] = i;
     for (let j = 1; j <= n; j++) {
       const cost = a[i - 1] === b[j - 1] ? 0 : 1;
       curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost);
     }
-    for (let j = 0; j <= n; j++) prev[j] = curr[j];
+    [prev, curr] = [curr, prev];
   }
-  return 1 - curr[n] / Math.max(m, n);
+
+  return 1 - prev[n] / Math.max(m, n);
 }
 
-// ─── Phase 5: 同批交叉去重 ───
+// ─── Phase 4: 同批交叉去重 ───
 
 /**
  * 同批笔记交叉去重（基于 TF-IDF + 余弦相似度）
@@ -311,12 +366,11 @@ export function crossCheckBatch(notes: AtomicNote[], threshold?: number): DedupR
     const isShortNote = length < SHORT_NOTE_LENGTH;
 
     for (let j = 0; j < uniqueIndices.length; j++) {
-      const uniqueIdx = uniqueIndices[j];
-      const uniqueVec = vectors[uniqueIdx];
+      const uniqueVec = vectors[uniqueIndices[j]];
       const uniqueNote = uniqueNotes[j];
 
       // 长度预过滤
-      const otherLen = notes[uniqueIdx].content.length;
+      const otherLen = uniqueNote.content.length;
       if (Math.abs(length - otherLen) / Math.max(length, otherLen) > LENGTH_RATIO_THRESHOLD) {
         continue;
       }
@@ -328,7 +382,7 @@ export function crossCheckBatch(notes: AtomicNote[], threshold?: number): DedupR
       // 极短笔记：编辑距离兜底
       let similarity: number;
       if (isShortNote && otherLen < SHORT_NOTE_LENGTH) {
-        similarity = editSimilarity(note.content, notes[uniqueIdx].content);
+        similarity = editSimilarity(note.content, uniqueNote.content);
         if (similarity < 0.7) continue;
       } else {
         const cosSim = cosineSimilarity(vec, uniqueVec);
@@ -369,7 +423,7 @@ export function crossCheckBatch(notes: AtomicNote[], threshold?: number): DedupR
   };
 }
 
-// ─── Phase 6: 知识库去重 ───
+// ─── Phase 4b: 知识库去重 ───
 
 /**
  * 从知识库读取并预处理目标文件夹下的所有笔记
@@ -377,7 +431,7 @@ export function crossCheckBatch(notes: AtomicNote[], threshold?: number): DedupR
 async function loadAndPreprocessExistingNotes(
   vault: Vault,
   targetFolder: string,
-): Promise<{ notes: CachedNote[]; idfTable: IdfTable }> {
+): Promise<{ notes: CachedNote[]; idfTable: IdfTable; dfCounts: Map<string, number> }> {
   const allFiles = vault.getMarkdownFiles();
   const existingFiles = allFiles.filter(file => isPathInFolder(file.path, targetFolder));
 
@@ -408,16 +462,17 @@ async function loadAndPreprocessExistingNotes(
   }
 
   // 计算 IDF（基于整个目标文件夹的语料）
-  const idfTable = computeIdfTable(allTokens, allTokens.length || 1);
+  const idfResult = computeIdfTable(allTokens, allTokens.length || 1);
+  const { idf: idfTable } = idfResult;
   const avgLen = rawNotes.reduce((s, rn) => s + rn.content.length, 0) / Math.max(rawNotes.length, 1);
 
   // 计算每篇文档的 TF-IDF 向量
   const notes: CachedNote[] = rawNotes.map((rn, idx) => {
     const tokens = allTokens[idx];
-    const vector = computeTfIdfVector(tokens, idfTable, rn.content.length, avgLen);
+    const vector = computeTfIdfVector(tokens, idfResult, rn.content.length, avgLen);
     const titleTokens = tokenize(rn.title);
     const titleVector = titleTokens.size >= MIN_TOKENS_THRESHOLD
-      ? computeTfIdfVector(titleTokens, idfTable, rn.title.length, avgLen)
+      ? computeTfIdfVector(titleTokens, idfResult, rn.title.length, avgLen)
       : null;
     return {
       path: rn.path,
@@ -431,7 +486,7 @@ async function loadAndPreprocessExistingNotes(
     };
   });
 
-  return { notes, idfTable };
+  return { notes, idfTable, dfCounts: idfResult.dfCounts };
 }
 
 /**
@@ -446,7 +501,7 @@ export async function checkAgainstVaultDetailed(
   vault: Vault,
   notes: AtomicNote[],
   targetFolder: string,
-  cacheManager: DedupCacheManager = defaultDedupCache,
+  cacheManager: DedupCacheManager = getDefaultDedupCache(),
   semanticManager?: SemanticDedupManager,
 ): Promise<VaultMatchInfo[]> {
   // 获取或构建知识库语料
@@ -461,7 +516,7 @@ export async function checkAgainstVaultDetailed(
     const result = await loadAndPreprocessExistingNotes(vault, targetFolder);
     existingNotes = result.notes;
     idfTable = result.idfTable;
-    cacheManager.set(targetFolder, existingNotes, idfTable);
+    cacheManager.set(targetFolder, existingNotes, idfTable, result.dfCounts);
   }
 
   // 计算整体平均文档长度（BM25 用）
@@ -556,29 +611,40 @@ export async function checkAgainstVaultDetailed(
     const semanticMatches = await semanticManager.findBestMatches(newContents, vaultVectors);
 
     // 用语义匹配结果增强本地结果
+    // 核心逻辑：本地和语义独立计算，取最高相似度
     for (let idx = 0; idx < results.length; idx++) {
       const semMatch = semanticMatches[idx];
+
+      // 记录语义相似度（始终记录，供 UI 展示「本地 X% / 语义 Y%」）
+      results[idx].semanticSimilarity = semMatch?.similarity ?? 0;
+
+      // ✅ 保存本地相似度（合并前），供 UI 展示分解
+      results[idx].localSimilarity = results[idx].bestMatch?.similarity ?? 0;
+
       if (!semMatch) continue;
 
-      // 记录语义相似度（供 UI 展示，不改变本地综合评分）
-      results[idx].semanticSimilarity = semMatch.similarity;
+      // ✅ 关键修复：比较本地和语义，取最高相似度
+      const localSim = results[idx].localSimilarity;
+      const semSim = semMatch.similarity;
 
-      // 仅当本地无匹配时，用语义结果补充（语义已在内部门槛过滤）
-      if (!results[idx].bestMatch) {
+      if (semSim > localSim) {
+        // 语义相似度更高，用语义结果覆盖 bestMatch
         const matchedFile = vault.getAbstractFileByPath(semMatch.path);
         let matchedContent = '';
         if (matchedFile instanceof TFile) {
           matchedContent = await vault.read(matchedFile);
         }
         results[idx].bestMatch = {
-          similarity: semMatch.similarity,
+          similarity: semSim,  // ✅ 用语义相似度（更高）
           path: semMatch.path,
           content: matchedContent.slice(0, 200) + (matchedContent.length > 200 ? '...' : ''),
         };
         results[idx].semanticMatchPath = semMatch.path;
       }
+      // 如果本地相似度更高或相等，保留本地结果（不改动 bestMatch）
     }
   }
 
   return results;
 }
+

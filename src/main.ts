@@ -6,8 +6,8 @@
 
 import { Plugin, Notice, Editor, MarkdownView, Menu, MenuItem, Modal, App } from 'obsidian';
 import { AtomicNotesSettingTab, PluginSettings, DEFAULT_SETTINGS } from './ui/setting-tab';
-import { runExtraction } from './extractor';
-import { isPathInFolder } from './deduplicator';
+import { runExtraction, clearUrlCache } from './extractor';
+import { isPathInFolder, clearDedupCache } from './deduplicator';
 import { stripImageNoise } from './utils/clipboard';
 import { saveNotes } from './storage';
 import { AtomicNote } from './utils/notes-standards';
@@ -137,6 +137,8 @@ export default class AtomicNotesPlugin extends Plugin {
   }
 
   async onunload() {
+    clearDedupCache();
+    clearUrlCache();
     console.log('Bamboo Darts 插件已卸载');
   }
 

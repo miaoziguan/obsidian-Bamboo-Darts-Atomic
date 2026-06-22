@@ -1,5 +1,52 @@
 # Bamboo Darts 更新日志
 
+## v1.3.7 (2026-06-22)
+
+### 深度代码审计 & 修复
+- **去重缓存增量更新**：单文件变动不再触发全量 IDF 重建，DF 计数支持增量维护
+- **`requestUrl` 统一 `throw: false`**：4xx/5xx 不再抛裸异常，`friendlyError` 友好提示生效
+- **UI 修复**：ResultModal 确认按钮与选中状态联动、全选按钮文案同步、编辑索引改用闭包 i、切换 Tab 不清进度、历史删除互斥确认
+- **门控 & 核验修复**：Phase 6 remap 顺序修正、forceExtracted 标记区分强制提炼、语义去重跳过提示
+- **URL 提取修复**：`[class*=]` 死选择器复活、正则元字符 escape、`<figure>`/`<picture>` 残留清理
+- **YAML & 解析防御**：tag 反斜杠转义、空反向链接守卫、quote 字符类严格配对
+- **死代码清理**：删除 `saveNote`、`keywords.ts`、死导出/死字段，消除 Jaccard/SimHash 重复逻辑
+- **Phase 编号统一**：deduplicator.ts 注释与 extractor.ts 流水线对齐
+
+## v1.3.6 (2026-06-22)
+
+### 语义去重逻辑优化
+
+- **修复本地与语义结果合并逻辑**：改为「本地快筛 + 向量精判 独立并行，取最高相似度」
+  - 修复前：语义结果只在「本地无匹配」时才补充，导致语义高相似度（如 0.92）被本地低相似度（如 0.30）覆盖
+  - 修复后：本地和语义独立计算，最终相似度 = `max(本地相似度, 语义相似度)`
+- **新增「本地 X% / 语义 Y%」分解展示**
+  - 去重报告（`renderDedupReport`）：显示 `相似度：85%（本地 75% / 语义 92%）`
+  - 疑似重复面板（`renderPendingDuplicates`）：分别显示本地和语义相似度
+- **类型定义补齐**：`DuplicateInfo`、`VaultMatchInfo`、`PendingDuplicate` 新增 `localSimilarity` 字段
+
+### 涉及文件
+
+- `src/deduplicator.ts`：合并逻辑改为取 max；类型加 `localSimilarity`
+- `src/extractor.ts`：`PendingDuplicate` 加 `localSimilarity`；三处传参补齐
+- `src/ui/result-modal.ts`：去重报告和疑似重复面板都显示分解
+
+---
+
+## v1.3.5 (2026-06-22)
+
+### Bug 修复
+
+- 修复 `defaultDedupCache is not defined` 运行时错误（`deduplicator.ts` 导出方式导致 esbuild tree-shaking 后变量丢失）
+  - 改用 `export function getDefaultDedupCache()` 懒初始化单例模式
+  - 涉及文件：`src/deduplicator.ts`、`src/extractor.ts`
+
+### 功能优化
+
+- 更新介绍面板（About Panel）Phase 4b 描述，补充语义去重（Beta）说明
+  - 涉及文件：`src/ui/about-content.ts`
+
+---
+
 ## v1.3.4 (2026-06-22)
 
 ### 语义去重（Beta）
@@ -124,3 +171,4 @@
 - 从选中文本 / URL 提炼原子笔记
 - 基本 AI 提炼流程
 - DeepSeek API 集成
+

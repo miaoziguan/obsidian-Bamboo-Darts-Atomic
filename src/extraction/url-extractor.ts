@@ -139,12 +139,17 @@ export function extractUrlContent(
   };
 }
 
+/** 转义正则元字符（用于将用户输入安全地嵌入正则表达式） */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function extractBySelector(html: string, selector: string): string {
   if (selector.startsWith('[')) {
     const attrMatch = selector.match(/\[(\w+)=["']?([^"']+)["']?\]/);
     if (attrMatch) {
       const attrName = attrMatch[1];
-      const attrValue = attrMatch[2];
+      const attrValue = escapeRegExp(attrMatch[2]);
       const regex = new RegExp(
         `<([a-z][a-z0-9]*)[^>]*\\s${attrName}=["']?${attrValue}["']?[^>]*>([\\s\\S]*?)<\\/\\1>`,
         'gi'
@@ -153,7 +158,7 @@ function extractBySelector(html: string, selector: string): string {
       return match ? match[2] : '';
     }
   } else if (selector.startsWith('.')) {
-    const className = selector.slice(1);
+    const className = escapeRegExp(selector.slice(1));
     const regex = new RegExp(
       `<([a-z][a-z0-9]*)[^>]*\\sclass=["'][^"']*${className}[^"']*["'][^>]*>([\\s\\S]*?)<\\/\\1>`,
       'gi'
@@ -205,10 +210,22 @@ function removeNoiseBlocks(html: string): string {
     let regex: RegExp;
 
     if (selector.startsWith('[')) {
+      // 先尝试 *= 包含匹配（如 [class*="ad"]），再降级精确 = 匹配
+      const starMatch = selector.match(/\[(\w+)\*=["']?([^"']+)["']?\]/);
+      if (starMatch) {
+        const attrName = starMatch[1];
+        const attrValue = escapeRegExp(starMatch[2]);
+        regex = new RegExp(
+          `<([a-z][a-z0-9]*)[^>]*\\s${attrName}=["'][^"']*${attrValue}[^"']*["'][^>]*>[\\s\\S]*?<\\/\\1>`,
+          'gi'
+        );
+        result = result.replace(regex, ' ');
+        continue;
+      }
       const attrMatch = selector.match(/\[(\w+)=["']?([^"']+)["']?\]/);
       if (attrMatch) {
         const attrName = attrMatch[1];
-        const attrValue = attrMatch[2];
+        const attrValue = escapeRegExp(attrMatch[2]);
         regex = new RegExp(
           `<([a-z][a-z0-9]*)[^>]*\\s${attrName}=["']?${attrValue}["']?[^>]*>[\\s\\S]*?<\\/\\1>`,
           'gi'
@@ -216,23 +233,12 @@ function removeNoiseBlocks(html: string): string {
         result = result.replace(regex, ' ');
       }
     } else if (selector.startsWith('.')) {
-      const className = selector.slice(1);
+      const className = escapeRegExp(selector.slice(1));
       regex = new RegExp(
         `<([a-z][a-z0-9]*)[^>]*\\sclass=["'][^"']*${className}[^"']*["'][^>]*>[\\s\\S]*?<\\/\\1>`,
         'gi'
       );
       result = result.replace(regex, ' ');
-    } else if (selector.startsWith('[class*=') || selector.startsWith('[id*=')) {
-      const match = selector.match(/\[(\w+)\*=["']?([^"']+)["']?\]/);
-      if (match) {
-        const attrName = match[1];
-        const attrValue = match[2];
-        regex = new RegExp(
-          `<([a-z][a-z0-9]*)[^>]*\\s${attrName}=["'][^"']*${attrValue}[^"']*["'][^>]*>[\\s\\S]*?<\\/\\1>`,
-          'gi'
-        );
-        result = result.replace(regex, ' ');
-      }
     } else {
       const tagName = selector;
       regex = new RegExp(`<${tagName}[^>]*>[\\s\\S]*?<\\/${tagName}>`, 'gi');

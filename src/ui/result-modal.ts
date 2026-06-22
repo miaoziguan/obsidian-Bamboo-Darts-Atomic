@@ -28,8 +28,7 @@ export class ResultModal extends Modal {
   private onSave: (notes: AtomicNote[]) => Promise<void>;
   private selectedNotes: Set<number> = new Set();
   private countEl: HTMLElement | null = null;
-  /** 用户确认保留的疑似重复索引 */
-  private confirmedPending: Set<number> = new Set();
+  private _toggleBtn: HTMLButtonElement | null = null;
   /** 用户从去重详情中恢复的批内重复索引 */
   private restoredCrossBatch: Set<number> = new Set();
 
@@ -73,6 +72,25 @@ export class ResultModal extends Modal {
     // 门控警告提示栏（仅提炼成功时显示）
     if (this.result.success && this.result.gateWarnings && this.result.gateWarnings.length > 0) {
       this.renderGateWarnings(contentEl);
+    }
+
+    // 语义去重跳过提示（向量索引构建中）
+    if (this.result.semanticDedupSkipped) {
+      const box = contentEl.createEl('div', {
+        attr: {
+          style: [
+            'border-left: 3px solid var(--text-accent)',
+            'background: rgba(var(--color-blue-rgb, 68,138,255), 0.06)',
+            'border-radius: 6px',
+            'padding: 6px 12px',
+            'margin-bottom: 10px',
+            'font-size: 12px',
+            'color: var(--text-muted)',
+          ].join(';'),
+        },
+      });
+      box.createEl('span', { text: 'ℹ️ ', attr: { style: 'font-size:13px' } });
+      box.createEl('span', { text: '向量索引构建中，本次未启用语义去重。仅使用本地算法比对。' });
     }
 
     if (this.result.success && this.result.notes) {
@@ -164,7 +182,9 @@ export class ResultModal extends Modal {
     });
     titleRow.createEl('span', { text: '⚠️', attr: { style: 'font-size:13px' } });
     titleRow.createEl('span', {
-      text: `门控警告（${warnings.length} 条，不影响提炼结果）`,
+      text: this.result.forceExtracted
+        ? `质量提醒（${warnings.length} 条，已跳过门控）`
+        : `门控警告（${warnings.length} 条，不影响提炼结果）`,
       attr: { style: 'font-weight:600;font-size:12px;color:var(--color-orange)' },
     });
 
@@ -199,8 +219,18 @@ export class ResultModal extends Modal {
       });
       const dupList = reportEl.createEl('ul');
       for (const dup of this.dedupResult.duplicates) {
+        const sim = (dup.similarity * 100).toFixed(1);
+        let detail = `相似度：${sim}%`;
+        // 显示分解：本地 X% / 语义 Y%
+        if (dup.localSimilarity !== undefined && dup.semanticSimilarity !== undefined) {
+          detail += `（本地 ${(dup.localSimilarity * 100).toFixed(1)}% / 语义 ${(dup.semanticSimilarity * 100).toFixed(1)}%）`;
+        } else if (dup.semanticSimilarity !== undefined && dup.semanticSimilarity > 0) {
+          detail += `（语义 ${(dup.semanticSimilarity * 100).toFixed(1)}%）`;
+        } else {
+          detail += `（本地）`;
+        }
         dupList.createEl('li').setText(
-          `相似度：${(dup.similarity * 100).toFixed(1)}% | 匹配：${dup.matchedNote || '未知'}`
+          `${detail} | 匹配：${dup.matchedNote || '未知'}`
         );
       }
     }
@@ -340,8 +370,8 @@ export class ResultModal extends Modal {
     this.restoredCrossBatch.add(index);
     this.updateSelectionCount();
 
-    // 更新笔记列表区域
-    this.refreshNotesList();
+    // 更新笔记列表（仅刷新卡片，保留搜索/筛选状态）
+    this.refreshFilteredNotes();
   }
 
   /** 刷新笔记卡片列表（用于恢复/变更后重新渲染） */
@@ -395,10 +425,10 @@ export class ResultModal extends Modal {
         },
       });
 
-      // 相似度提示
-      const simPercent = (item.similarity * 100).toFixed(1);
+      // 相似度提示（本地 X% / 语义 Y%）
+      const localSim = (item.localSimilarity * 100).toFixed(1);
       const simColor = isHigh ? 'var(--color-red)' : 'var(--text-accent)';
-      let simLabel = isHigh ? `⚠ 本地 ${simPercent}%（高）` : `本地 ${simPercent}%`;
+      let simLabel = isHigh ? `⚠ 本地 ${localSim}%（高）` : `本地 ${localSim}%`;
       if (item.semanticSimilarity !== undefined) {
         const semPercent = (item.semanticSimilarity * 100).toFixed(1);
         simLabel += ` / 语义 ${semPercent}%`;
@@ -449,11 +479,12 @@ export class ResultModal extends Modal {
         attr: { style: 'font-size:12px;padding:4px 12px;cursor:pointer' },
       });
       keepBtn.addEventListener('click', () => {
-        this.confirmedPending.add(item.newNoteIndex);
+        this.selectedNotes.add(item.newNoteIndex);
         card.style.opacity = '0.5';
         keepBtn.setText('已保留');
         keepBtn.setAttribute('disabled', 'true');
         discardBtn.setAttribute('disabled', 'true');
+        this.updateSelectionCount();
       });
 
       const discardBtn = btnRow.createEl('button', {
@@ -461,7 +492,6 @@ export class ResultModal extends Modal {
         attr: { style: 'font-size:12px;padding:4px 12px;cursor:pointer' },
       });
       discardBtn.addEventListener('click', () => {
-        this.confirmedPending.delete(item.newNoteIndex);
         this.selectedNotes.delete(item.newNoteIndex);
         card.style.opacity = '0.5';
         discardBtn.setText('已丢弃');
@@ -481,9 +511,10 @@ export class ResultModal extends Modal {
     });
     keepAllBtn.addEventListener('click', () => {
       for (const item of pending) {
-        this.confirmedPending.add(item.newNoteIndex);
+        this.selectedNotes.add(item.newNoteIndex);
       }
       this.renderPendingDuplicates(container);
+      this.updateSelectionCount();
     });
 
     const discardAllBtn = quickActions.createEl('button', {
@@ -674,17 +705,15 @@ export class ResultModal extends Modal {
     });
 
     // 全选/取消全选
-    const toggleBtn = headerEl.createEl('button', {
+    this._toggleBtn = headerEl.createEl('button', {
       text: '取消全选',
       attr: { style: 'font-size:11px;padding:2px 8px;cursor:pointer' },
     });
-    toggleBtn.addEventListener('click', () => {
+    this._toggleBtn.addEventListener('click', () => {
       if (this.selectedNotes.size === this.result.notes.length) {
         this.selectedNotes.clear();
-        toggleBtn.setText('全选');
       } else {
         this.selectedNotes = new Set(this.result.notes.map((_, i) => i));
-        toggleBtn.setText('取消全选');
       }
       this.updateSelectionCount();
     });
@@ -780,7 +809,7 @@ export class ResultModal extends Modal {
       const checkbox = headerRow.createEl('input', {
         attr: { type: 'checkbox' },
       }) as HTMLInputElement;
-      checkbox.checked = true;
+      checkbox.checked = this.selectedNotes.has(i);
       checkbox.addEventListener('change', () => {
         if (checkbox.checked) this.selectedNotes.add(i);
         else this.selectedNotes.delete(i);
@@ -1005,7 +1034,7 @@ export class ResultModal extends Modal {
             editBtn.setText('✎ 编辑');
             // 更新标题显示
             const titleEl = card.querySelector('.atomic-notes-card-title') as HTMLElement;
-            if (titleEl) titleEl.setText(`${this.result.notes.indexOf(note) + 1}. ${note.title}`);
+            if (titleEl) titleEl.setText(`${i + 1}. ${note.title}`);
             // 更新预览
             const previewEl = card.querySelector('.atomic-notes-card-preview') as HTMLElement;
             if (previewEl) {
@@ -1060,9 +1089,25 @@ export class ResultModal extends Modal {
     if (this.countEl) {
       this.countEl.setText(`已选 ${this.selectedNotes.size} / ${this.result.notes.length} 条`);
     }
+    this.updateToggleBtn();
+  }
+
+  /** 同步全选/取消全选按钮文案 */
+  private updateToggleBtn() {
+    if (!this._toggleBtn) return;
+    this._toggleBtn.setText(
+      this.selectedNotes.size === this.result.notes.length ? '取消全选' : '全选'
+    );
   }
 
   onClose() {
+    // 释放引用，帮助 GC 回收提炼结果对象图
+    this.selectedNotes.clear();
+    this.restoredCrossBatch.clear();
+    this.visibleIndices.length = 0;
+    // result 是只读的，用 any 强置空断开笔记数组引用
+    (this as any).result = null;
+
     const { contentEl } = this;
     contentEl.empty();
   }

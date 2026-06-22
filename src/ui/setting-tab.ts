@@ -798,6 +798,7 @@ export class AtomicNotesSettingTab extends PluginSettingTab {
           messages: [{ role: 'user', content: '你好' }],
           max_tokens: 10,
         }),
+        throw: false,
       });
       const latency = Date.now() - startTime;
 
@@ -806,18 +807,19 @@ export class AtomicNotesSettingTab extends PluginSettingTab {
         const tokensUsed = response.json?.usage?.total_tokens;
         const tokenInfo = tokensUsed ? ` · 消耗 ${tokensUsed} tokens` : '';
         new Notice(`✓ 连接成功 · 模型: ${respModel} · 延迟: ${latency}ms${tokenInfo}`, 8000);
+      } else if (response.status === 401 || response.status === 403) {
+        new Notice('✗ 连接失败：API Key 无效或已过期，请检查', 10000);
+      } else if (response.status === 429) {
+        new Notice('✗ 连接失败：请求过于频繁或额度不足，请稍后重试', 10000);
+      } else if (response.status >= 500) {
+        new Notice(`✗ 连接失败：服务器错误（HTTP ${response.status}），请稍后重试`, 10000);
       } else {
-        new Notice(`API 连接失败：HTTP ${response.status}`, 8000);
+        new Notice(`✗ 连接失败：HTTP ${response.status}`, 8000);
       }
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
-      // 友好化常见错误
       let friendly = msg;
-      if (msg.includes('401') || msg.includes('Unauthorized')) {
-        friendly = 'API Key 无效或已过期，请检查';
-      } else if (msg.includes('429')) {
-        friendly = '请求过于频繁或额度不足，请稍后重试';
-      } else if (msg.includes('Failed to fetch') || msg.includes('network')) {
+      if (msg.includes('Failed to fetch') || msg.includes('network') || msg.includes('ENOTFOUND')) {
         friendly = '网络连接失败，请检查 API URL 或网络设置';
       }
       new Notice(`✗ 连接失败：${friendly}`, 10000);

@@ -172,7 +172,7 @@ A：需要 DeepSeek API Key，DeepSeek 有免费额度，具体请参考 [DeepSe
 A：不支持，本插件依赖 DeepSeek API 进行内容提炼。
 
 **Q：笔记保存到哪里？**  
-A：默认保存到 `Atomic Notes` 文件夹，可在设置中自定义。
+A：默认保存到 `原子笔记` 文件夹，可在设置中自定义。
 
 ### 更新日志
 

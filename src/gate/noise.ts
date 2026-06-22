@@ -1,5 +1,9 @@
 import { GATE_MIN_CONTENT_LENGTH, GATE_MAX_NOISE_RATIO, GATE_WARN_NOISE_RATIO } from '../constants';
-import { GateResult, ok, warn, block } from './types';
+import { GateResult } from './types';
+
+const ok = (): GateResult => ({ status: 'ok' });
+const warn = (reason: string): GateResult => ({ status: 'warn', reason });
+const block = (reason: string): GateResult => ({ status: 'block', reason });
 
 export function checkNoiseRatio(
   content: string,
@@ -26,7 +30,7 @@ export function checkNoiseRatio(
   return ok();
 }
 
-export function isNoise(ch: string): boolean {
+function isNoise(ch: string): boolean {
   const code = ch.codePointAt(0)!;
 
   // 基本拉丁 + 补充拉丁

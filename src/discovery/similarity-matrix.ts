@@ -3,7 +3,8 @@
  */
 
 import { Vault } from 'obsidian';
-import { extractKeywords } from './keywords';
+import { extractKeywordSet } from '../utils/tokenizer';
+import { jaccardSimilarity } from '../utils/jaccard';
 import { DEDUP_BATCH_SIZE } from '../constants';
 
 // ─── Types ───
@@ -54,14 +55,6 @@ const defaultCacheManager = new DiscoveryCacheManager();
 
 // ─── Utility ───
 
-/** Jaccard similarity between two keyword sets */
-function jaccardSim(setA: Set<string>, setB: Set<string>): number {
-  if (!setA || !setB || setA.size === 0 || setB.size === 0) return 0;
-  const intersection = new Set([...setA].filter(x => setB.has(x)));
-  const union = new Set([...setA, ...setB]);
-  return intersection.size / union.size;
-}
-
 /** Strip YAML frontmatter from markdown content */
 function stripFrontmatter(content: string): string {
   return content.replace(/^---[\s\S]*?---\n*/, '').trim();
@@ -104,7 +97,7 @@ export async function buildSimilarityMatrix(
   }
 
   // Build keyword sets
-  const keywordSets = notes.map(n => extractKeywords(n.content));
+  const keywordSets = notes.map(n => extractKeywordSet(n.content));
 
   // Build similarity matrix (symmetric: 只计算上三角，然后镜像，计算量减半)
   const matrix: number[][] = [];
@@ -114,7 +107,7 @@ export async function buildSimilarityMatrix(
   }
   for (let i = 0; i < notes.length; i++) {
     for (let j = i + 1; j < notes.length; j++) {
-      const sim = jaccardSim(keywordSets[i], keywordSets[j]);
+      const sim = jaccardSimilarity(keywordSets[i], keywordSets[j]);
       matrix[i][j] = sim;
       matrix[j][i] = sim;
     }

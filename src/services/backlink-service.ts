@@ -20,6 +20,7 @@ export function insertBacklinks(
   for (const path of notePaths) {
     try {
       const noteName = path.split('/').pop()!.replace(/\.md$/, '');
+      if (!noteName) { failed++; continue; }
       const backlink = `\n\n[[${noteName}]]\n`;
       const cursorPos = editor.getCursor();
       editor.replaceRange(backlink, cursorPos);

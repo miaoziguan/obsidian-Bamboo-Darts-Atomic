@@ -227,6 +227,7 @@ async function semanticCompare(
       temperature: 0,
     }),
     signal: config.signal,
+    throw: false,
   });
 
   if (response.status !== 200) {

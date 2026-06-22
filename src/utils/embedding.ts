@@ -320,6 +320,9 @@ export class SemanticDedupManager {
       if (onProgress) onProgress(fromCache, files.length, fromCache, 0);
     }
 
+    // 清理失效缓存（已删除/重命名的文件残留）
+    await this.cleanStaleCache(files.map(f => ({ path: f.path, mtime: f.mtime })));
+
     return result;
   }
 
@@ -378,12 +381,3 @@ export class SemanticDedupManager {
   }
 }
 
-/**
- * 判断语义去重是否可用（API Key 已填写）
- */
-export function isSemanticDedupEnabled(settings: {
-  enableSemanticDedup?: boolean;
-  hunyuanApiKey?: string;
-}): boolean {
-  return !!settings.enableSemanticDedup && !!settings.hunyuanApiKey;
-}

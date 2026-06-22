@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { extractKeywords } from '../src/discovery/keywords';
+import { extractKeywordSet as extractKeywords } from '../src/utils/tokenizer';
 
 describe('extractKeywords', () => {
   it('应从中文文本提取 bigram 关键词', () => {

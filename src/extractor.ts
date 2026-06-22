@@ -11,8 +11,8 @@
 import { requestUrl, Vault } from 'obsidian';
 import { runGateChecks } from './gate';
 import { AtomicNote } from './utils/notes-standards';
-import { crossCheckBatch, checkAgainstVaultDetailed, VaultMatchInfo, DedupResult, DuplicateInfo } from './deduplicator';
-import { SemanticDedupManager, isSemanticDedupEnabled } from './utils/embedding';
+import { crossCheckBatch, checkAgainstVaultDetailed, VaultMatchInfo, DedupResult, DuplicateInfo, getDefaultDedupCache } from './deduplicator';
+import { SemanticDedupManager } from './utils/embedding';
 import { classifyContent, resolveProfileConfig, ContentProfile, ProfileConfig } from './extraction/profiles';
 import { verifyClaims } from './extraction/fact-checker';
 import { reviewNotes, ReviewConfig, ReviewResult } from './review/note-reviewer';
@@ -85,7 +85,7 @@ async function runVaultDedupPhase(
     config.vault,
     notes,
     config.dedupTargetFolder?.trim() || config.targetFolder || '',
-    defaultDedupCache,
+    getDefaultDedupCache(),
     config.semanticManager,
   );
 
@@ -112,6 +112,7 @@ async function runVaultDedupPhase(
         newNoteContent: info.note.content,
         highSimilarity: true,
         semanticSimilarity: info.semanticSimilarity,
+        localSimilarity: info.localSimilarity ?? 0,
       });
     } else if (info.bestMatch.similarity >= MID_SIM_THRESHOLD) {
       // 中相似度：保留笔记，但标记为待确认
@@ -124,6 +125,7 @@ async function runVaultDedupPhase(
         newNoteTitle: info.note.title,
         newNoteContent: info.note.content,
         semanticSimilarity: info.semanticSimilarity,
+        localSimilarity: info.localSimilarity ?? 0,
       });
     } else {
       keptNotes.push(info.note);
@@ -141,6 +143,7 @@ async function runVaultDedupPhase(
         matchedNote: m.bestMatch!.path,
         matchedContent: m.bestMatch!.content,
         semanticSimilarity: m.semanticSimilarity,
+        localSimilarity: m.localSimilarity ?? 0,
       })),
   };
 
@@ -224,10 +227,10 @@ async function runReviewPhase(
 
   // 使用复查后的笔记（若复查失败，reviewNotes 内部已降级返回原始笔记）
   const filteredCount = notes.length - reviewResult.reviewedNotes.length;
-
-  // 使用内容指纹重映射 vaultDedupPending 的索引
-  vaultDedupPending = remapPendingDuplicates(notes, vaultDedupPending);
   notes = reviewResult.reviewedNotes;
+
+  // 重映射 vaultDedupPending 索引：过滤掉的笔记也从 pending 中移除
+  vaultDedupPending = remapPendingDuplicates(notes, vaultDedupPending);
 
   // 以 reviewResult.success 为准，不再扫描 AI 输出的中文理由（避免"失败"二字误判）
   if (!reviewResult.success) {
@@ -291,11 +294,6 @@ const DEFAULT_CONFIG: ExtractorConfig = {
   reviewApiUrl: '',
   reviewApiKey: '',
   enableVaultDedup: true,
-  // 语义去重（Beta）
-  enableSemanticDedup: false,
-  hunyuanApiKey: '',
-  hunyuanApiUrl: '',
-  semanticSimilarityThreshold: 0.82,
 };
 
 // ─── Step 日志工具（向后兼容） ───
@@ -347,6 +345,10 @@ function setUrlCache(url: string, content: string): void {
   urlCache.set(url, { content, cachedAt: Date.now() });
 }
 
+export function clearUrlCache(): void {
+  urlCache.clear();
+}
+
 async function readContent(
   input: { type: 'url' | 'text' | 'selection'; content: string },
   signal?: AbortSignal
@@ -363,6 +365,7 @@ async function readContent(
         url: input.content,
         method: 'GET',
         signal,
+        throw: false,
       });
 
       if (!response.text) {
@@ -424,6 +427,10 @@ export interface ExtractionResult {
   gateWarnings?: string[];
   /** 是否因质量门控被阻断（用于上层决定是否提供强制提炼选项） */
   gateBlocked?: boolean;
+  /** 是否已跳过门控（用户选择强制提炼），供 ResultModal 区分提示语 */
+  forceExtracted?: boolean;
+  /** 语义去重因索引构建中被跳过（已启用但向量未就绪） */
+  semanticDedupSkipped?: boolean;
   detectedProfile?: ContentProfile;
   profileSource?: 'auto' | 'manual';
   crossBatchDuplicates?: DuplicateInfo[];
@@ -448,6 +455,8 @@ export interface PendingDuplicate {
   highSimilarity?: boolean;
   /** 语义相似度（启用语义去重时才有值） */
   semanticSimilarity?: number;
+  /** 本地算法相似度（BM25 + SimHash），合并前 */
+  localSimilarity?: number;
 }
 
 export async function runExtraction(
@@ -581,7 +590,7 @@ async function runExtractionPhases(
 
   if (fullConfig.enableDeepMode && content.length > truncateLength) {
     tracker.start('Phase 3', '提炼原子笔记（深度模式）', `${profileLabel} | 文本 ${content.length} 字，分段提炼中...`);
-    const chunkedNotes = await extractChunked(content, config, fullConfig.onProgress, truncateLength, tracker);
+    const chunkedNotes = await extractChunked(content, config, truncateLength, tracker);
     if (chunkedNotes.length === 0) {
       extractResult = { success: false, error: '深度提炼未产出任何笔记' };
     } else {
@@ -675,6 +684,9 @@ async function runExtractionPhases(
     notes,
     steps: eventsToSteps(tracker.allEvents()),
     gateWarnings: gateResult.warnings.length > 0 ? gateResult.warnings : undefined,
+    forceExtracted: !!fullConfig.skipGate,
+    /** 语义去重因索引构建中被跳过（已启用但 manager 未就绪） */
+    semanticDedupSkipped: fullConfig.enableVaultDedup && !fullConfig.semanticManager,
     detectedProfile,
     profileSource,
     crossBatchDuplicates: dedupResult.duplicates.length > 0 ? dedupResult.duplicates : undefined,
@@ -685,3 +697,4 @@ async function runExtractionPhases(
     reviewDetails,
   };
 }
+

@@ -11,7 +11,7 @@
 import { AtomicNote } from '../utils/notes-standards';
 import { extractAtomicNotes, ExtractorConfig } from '../extractor';
 import { INPUT_TRUNCATE_LENGTH } from '../constants';
-import { ProgressCallback, ProgressEvent, ProgressTracker } from './progress';
+import { ProgressTracker } from './progress';
 
 /** 分段提炼的默认重叠字数 */
 const CHUNK_OVERLAP = 500;
@@ -79,9 +79,8 @@ export function splitContent(text: string, chunkSize: number, overlap: number): 
 export async function extractChunked(
   content: string,
   config: Partial<ExtractorConfig>,
-  onProgress?: ProgressCallback,
-  chunkSize?: number,
-  tracker?: ProgressTracker,
+  chunkSize: number | undefined,
+  tracker: ProgressTracker,
 ): Promise<AtomicNote[]> {
   const effectiveChunkSize = chunkSize && chunkSize >= 1000 ? chunkSize : INPUT_TRUNCATE_LENGTH;
   const chunks = splitContent(content, effectiveChunkSize, CHUNK_OVERLAP);
@@ -93,18 +92,7 @@ export async function extractChunked(
     const chunk = chunks[i];
     const label = `第${i + 1}/${chunks.length}轮`;
 
-    // 通过 tracker 更新进度（优先），降级到原始 onProgress
-    if (tracker) {
-      tracker.update({ detail: `${label}：处理 ${chunk.length} 字...` });
-    } else if (onProgress) {
-      const event: ProgressEvent = {
-        phase: `Phase 3.${i + 1}`,
-        name: `深度提炼 ${label}`,
-        detail: `处理 ${chunk.length} 字...`,
-        status: 'running',
-      };
-      onProgress(event, [], 0);
-    }
+    tracker.update({ detail: `${label}：处理 ${chunk.length} 字...` });
 
     const result = await extractAtomicNotes(chunk, config);
 
@@ -113,17 +101,10 @@ export async function extractChunked(
       successCount++;
     } else {
       failCount++;
-      if (tracker) {
-        tracker.update({ detail: `${label}：失败 — ${result.error || '未知错误'}` });
-      } else if (onProgress) {
-        const event: ProgressEvent = {
-          phase: `Phase 3.${i + 1}`,
-          name: `深度提炼 ${label}`,
-          detail: `失败: ${result.error || '未知错误'}`,
-          status: 'failed',
-        };
-        onProgress(event, [], 0);
-      }
+      tracker.update({ detail: `${label}：失败 — ${result.error || '未知错误'}`, status: 'failed' });
+
+      // 连续失败且无任何成功产出，提前中止，避免浪费 API 调用
+      if (failCount >= 3 && successCount === 0) break;
     }
 
     // 段间延迟

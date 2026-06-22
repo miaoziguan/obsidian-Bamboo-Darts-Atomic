@@ -86,6 +86,7 @@ export async function reviewNotes(
         temperature: AI_TEMPERATURE,
       }),
       signal: config.signal,
+      throw: false,
     });
 
     const aiContent = response.json?.choices?.[0]?.message?.content || '';

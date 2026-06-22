@@ -678,8 +678,8 @@ function extractTagCandidates(content: string, title?: string): string[] {
     }
   }
 
-  // 3. 引用词 / 书名号
-  const quoted = content.match(/[""「」『』《》]([^""「」『』《》]{2,10})[""「」『』《》]/g);
+  // 3. 引用词 / 书名号（严格配对：左引号→右引号）
+  const quoted = content.match(/"([^"]{2,10})"|「([^」]{2,10})」|『([^』]{2,10})』|《([^》]{2,10})》/g);
   if (quoted) {
     for (const q of quoted) {
       keywords.add(q.replace(/[""「」『』《》]/g, ''));

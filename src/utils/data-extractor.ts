@@ -54,28 +54,22 @@ export function extractVerifiableClaims(content: string): VerifiableClaim[] {
 
     // 1. 数值型声明
     for (const pattern of DATA_PATTERNS) {
-      pattern.regex.lastIndex = 0;
-
-      let match: RegExpExecArray | null;
-      while ((match = pattern.regex.exec(trimmed)) !== null) {
-        const anchor = match[0].trim();
+      const matches = trimmed.match(pattern.regex);
+      if (!matches) continue;
+      for (const anchor of matches) {
         if (seen.has(anchor)) continue;
         seen.add(anchor);
-
         claims.push({ claim: truncated, anchor, type: 'numeric' });
       }
     }
 
     // 2. 命名实体声明
     for (const pattern of ENTITY_PATTERNS) {
-      pattern.regex.lastIndex = 0;
-
-      let match: RegExpExecArray | null;
-      while ((match = pattern.regex.exec(trimmed)) !== null) {
-        const anchor = match[0].trim();
+      const matches = trimmed.match(pattern.regex);
+      if (!matches) continue;
+      for (const anchor of matches) {
         if (seen.has(anchor)) continue;
         seen.add(anchor);
-
         claims.push({ claim: truncated, anchor, type: 'entity' });
       }
     }

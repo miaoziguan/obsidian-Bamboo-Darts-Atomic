@@ -1,4 +1,8 @@
-import { GateResult, ok, warn, block } from './types';
+import { GateResult } from './types';
+
+const ok = (): GateResult => ({ status: 'ok' });
+const warn = (reason: string): GateResult => ({ status: 'warn', reason });
+const block = (reason: string): GateResult => ({ status: 'block', reason });
 
 // ─── 广告/低质关键词 ───
 

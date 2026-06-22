@@ -14,14 +14,14 @@ export interface GateCheckResult {
   warnings: string[];
 }
 
-export function ok(): GateResult {
+function ok(): GateResult {
   return { status: 'ok' };
 }
 
-export function warn(reason: string): GateResult {
+function warn(reason: string): GateResult {
   return { status: 'warn', reason };
 }
 
-export function block(reason: string): GateResult {
+function block(reason: string): GateResult {
   return { status: 'block', reason };
 }

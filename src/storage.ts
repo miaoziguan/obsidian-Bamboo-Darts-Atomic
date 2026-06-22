@@ -7,7 +7,7 @@ import { App, normalizePath } from 'obsidian';
 import { AtomicNote } from './utils/notes-standards';
 import { MAX_FILENAME_LENGTH } from './constants';
 
-export interface StorageConfig {
+interface StorageConfig {
   targetFolder: string; // 目标文件夹（如 "Atomic Notes"）
   fileNameTemplate: string; // 文件名模板（如 "{{title}}" 或 "{{date}}-{{title}}"）
 }
@@ -89,7 +89,7 @@ export function formatNoteAsMarkdown(note: AtomicNote): string {
     // 使用 YAML 列表格式，避免标签内含 ] 或 , 破坏内联数组语法
     lines.push('tags:');
     for (const tag of note.tags) {
-      const safeTag = tag.replace(/"/g, '\\"');
+      const safeTag = tag.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
       lines.push(`  - "${safeTag}"`);
     }
   }
@@ -105,60 +105,6 @@ export function formatNoteAsMarkdown(note: AtomicNote): string {
   lines.push(cleanedContent || note.content);
 
   return lines.join('\n');
-}
-
-/**
- * 存储单条原子笔记
- */
-async function saveNote(
-  app: App,
-  note: AtomicNote,
-  config: Partial<StorageConfig> = {}
-): Promise<{ success: boolean; path?: string; error?: string }> {
-  const fullConfig = { ...DEFAULT_CONFIG, ...config };
-
-  // 兜底：targetFolder 为空时使用默认值
-  if (!fullConfig.targetFolder?.trim()) {
-    fullConfig.targetFolder = DEFAULT_CONFIG.targetFolder;
-  }
-  
-  try {
-    // 确保目标文件夹存在
-    await ensureFolder(app, fullConfig.targetFolder);
-    
-    // 生成文件名和内容
-    const fileName = generateFileName(fullConfig.fileNameTemplate, note);
-    const filePath = normalizePath(`${fullConfig.targetFolder}/${fileName}.md`);
-    const content = formatNoteAsMarkdown(note);
-    
-    // 检查文件是否已存在
-    const existingFile = app.vault.getAbstractFileByPath(filePath);
-    
-    if (existingFile) {
-      // 生成递增文件名避免覆盖
-      const baseName = fileName;
-      let counter = 1;
-      let newFilePath: string;
-      
-      do {
-        const newFileName = `${baseName} ${counter}`;
-        newFilePath = normalizePath(`${fullConfig.targetFolder}/${newFileName}.md`);
-        counter++;
-      } while (app.vault.getAbstractFileByPath(newFilePath));
-      
-      await app.vault.create(newFilePath, content);
-      return { success: true, path: newFilePath };
-    } else {
-      // 创建新文件
-      await app.vault.create(filePath, content);
-      return { success: true, path: filePath };
-    }
-  } catch (error: unknown) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
 }
 
 /**

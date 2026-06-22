@@ -1,4 +1,8 @@
-import { GateResult, ok, warn, block } from './types';
+import { GateResult } from './types';
+
+const ok = (): GateResult => ({ status: 'ok' });
+const warn = (reason: string): GateResult => ({ status: 'warn', reason });
+const block = (reason: string): GateResult => ({ status: 'block', reason });
 
 const HTML_ARTIFACT_PATTERNS: RegExp[] = [
   /<[a-z][a-z0-9]*\s[^>]*>/gi,

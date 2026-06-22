@@ -1,4 +1,8 @@
-import { GateResult, ok, warn, block } from './types';
+import { GateResult } from './types';
+
+const ok = (): GateResult => ({ status: 'ok' });
+const warn = (reason: string): GateResult => ({ status: 'warn', reason });
+const block = (reason: string): GateResult => ({ status: 'block', reason });
 
 const DEFAULT_MIN_LENGTH = 50;
 const DEFAULT_WARN_LENGTH = 200;

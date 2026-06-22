@@ -65,10 +65,11 @@ export async function extractAtomicNotes(
           temperature: AI_TEMPERATURE,
         }),
         signal: fullConfig.signal,
+        throw: false,
       });
 
-      // 5xx 服务端错误 → 抛异常触发重试
-      if (response.status >= 500) {
+      // 非 200 → 抛异常触发重试
+      if (response.status !== 200) {
         throw new Error(`API 返回 ${response.status}`);
       }
 
