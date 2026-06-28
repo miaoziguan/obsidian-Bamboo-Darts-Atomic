@@ -460,16 +460,22 @@ async function loadAndPreprocessExistingNotes(
     for (let j = 0; j < batch.length; j++) {
       const file = batch[j] as TFile;
       const content = contents[j];
-      // 从 YAML frontmatter 提取标题（插件保存的笔记格式首行是 ---）
+      // 从内容中提取标题（支持多种格式）
       let title = '';
-      const fmMatch = content.match(/^---\n([\s\S]*?)\n---\n/);
+      const normalized = content.replace(/^\uFEFF/, '').trimStart();
+      // 尝试解析 YAML frontmatter（允许 --- 前后有空白）
+      const fmMatch = normalized.match(/^---\s*\n([\s\S]*?)\n---\s*(?:\n|$)/);
       if (fmMatch) {
-        const titleLine = fmMatch[1].match(/^title:\s*(.+)$/m);
-        if (titleLine) title = titleLine[1].trim();
+        const fmBlock = fmMatch[1];
+        const titleLine = fmBlock.match(/^title:\s*(.+)$/m);
+        if (titleLine) {
+          // 去掉可能的引号包裹
+          title = titleLine[1].trim().replace(/^["']|["']$/g, '');
+        }
       }
       if (!title) {
         const headingMatch = content.match(/^#\s+(.+)$/m);
-        title = headingMatch ? headingMatch[1].trim() : content.split('\n')[0]?.trim() || '';
+        title = headingMatch ? headingMatch[1].trim() : content.split('\n').find(l => l.trim())?.trim() || '';
       }
       rawNotes.push({ path: file.path, content, title, mtime: file.stat.mtime });
       allTokens.push(tokenize(content));

@@ -274,9 +274,10 @@ function stripCodeBlocks(text: string): string {
 function tryParseFrontmatterFormat(text: string): AtomicNote[] {
   const notes: AtomicNote[] = [];
 
-  // 用正则匹配完整的笔记块：可选的开头 --- + frontmatter + 关闭 --- + 正文
-  // 支持连续的多条笔记
-  const notePattern = /(?:^|\n)---\n([\s\S]*?)---\n([\s\S]*?)(?=(?:\n---\s*$)|(?:\n---\n)|$)/g;
+  // 用正则匹配完整的笔记块：开头 ---（允许前后空白）+ frontmatter + 关闭 --- + 正文
+  // 支持连续的多条笔记；对 AI 输出中常见的多余空白做容错
+  const notePattern =
+    /(?:^|\n)---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*?)(?=(?:\n---\s+$)|(?:\n---\s*\n)|$)/gm;
 
   let match: RegExpExecArray | null;
   while ((match = notePattern.exec(text)) !== null) {

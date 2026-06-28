@@ -19,6 +19,7 @@ import {
   SEMANTIC_THRESHOLD_MAX,
   SEMANTIC_THRESHOLD_STEP,
 } from '../constants';
+import { invalidateDiscoveryCache } from '../discovery/similarity-matrix';
 
 export interface PluginSettings {
   // 设置版本号（用于迁移）
@@ -50,6 +51,16 @@ export interface PluginSettings {
 
   // Discovery
   discoveryRecommendation: boolean;
+  /** 是否使用发现索引（缓存特征）避免重复读文件 */
+  discoveryUseIndex: boolean;
+  /** 发现 Tab 最大参与计算的笔记数量 */
+  discoveryMaxNotes: number;
+  /** 候选笔记 Jaccard 相似度最低门槛 */
+  discoveryJaccardThreshold: number;
+  /** MMR 相关度权重（0=纯多样性，1=纯相关度） */
+  discoveryMmrLambda: number;
+  /** 发现 Tab 推荐结果数量 */
+  discoveryTopK: number;
 
   // Review
   enableReview: boolean;
@@ -100,6 +111,11 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   factCheck: true,
   verifiedOnly: false,
   discoveryRecommendation: true,
+  discoveryUseIndex: true,
+  discoveryMaxNotes: 500,
+  discoveryJaccardThreshold: 0,
+  discoveryMmrLambda: 0.6,
+  discoveryTopK: 10,
 
   // Review
   enableReview: false,
@@ -543,13 +559,89 @@ export class AtomicNotesSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName('启用关联推荐')
-      .setDesc('选中笔记后显示 Top10 相关笔记')
+      .setDesc('在「发现」标签页显示与当前笔记相关的其他笔记')
       .addToggle((toggle) =>
         toggle.setValue(this.plugin.settings.discoveryRecommendation).onChange(async (value) => {
           this.plugin.settings.discoveryRecommendation = value;
           await this.plugin.saveSettings();
+          this.display();
         }),
       );
+
+    if (this.plugin.settings.discoveryRecommendation) {
+      new Setting(containerEl)
+        .setName('使用发现索引')
+        .setDesc('开启后插件会缓存笔记关键词，计算关联时不用反复读取文件。笔记较多时建议开启')
+        .addToggle((toggle) =>
+          toggle.setValue(this.plugin.settings.discoveryUseIndex).onChange(async (value) => {
+            this.plugin.settings.discoveryUseIndex = value;
+            await this.plugin.saveSettings();
+            invalidateDiscoveryCache();
+          }),
+        );
+
+      new Setting(containerEl)
+        .setName('最多比较多少条笔记')
+        .setDesc('参与关联计算的笔记数量上限。数量越多结果越全，但计算也越慢（默认 500）')
+        .addText((text) =>
+          text
+            .setValue(String(this.plugin.settings.discoveryMaxNotes))
+            .onChange(async (value) => {
+              const num = parseInt(value, 10);
+              if (!isNaN(num) && num >= 50 && num <= 10000) {
+                this.plugin.settings.discoveryMaxNotes = num;
+                await this.plugin.saveSettings();
+                invalidateDiscoveryCache();
+              }
+            }),
+        );
+
+      new Setting(containerEl)
+        .setName('最低相似度')
+        .setDesc('相似度低于这个值的笔记不会出现在推荐里。设为 0 表示不过滤，结果最多；调高能减少弱相关推荐')
+        .addSlider((s) =>
+          s
+            .setLimits(0.0, 0.9, 0.05)
+            .setValue(this.plugin.settings.discoveryJaccardThreshold)
+            .setDynamicTooltip()
+            .onChange(async (v) => {
+              this.plugin.settings.discoveryJaccardThreshold = v;
+              await this.plugin.saveSettings();
+              invalidateDiscoveryCache();
+            }),
+        );
+
+      new Setting(containerEl)
+        .setName('推荐结果要不要更多样')
+        .setDesc('越大推荐结果越贴近原笔记，越小结果越多样化。推荐先保持默认 0.6')
+        .addSlider((s) =>
+          s
+            .setLimits(0.0, 1.0, 0.05)
+            .setValue(this.plugin.settings.discoveryMmrLambda)
+            .setDynamicTooltip()
+            .onChange(async (v) => {
+              this.plugin.settings.discoveryMmrLambda = v;
+              await this.plugin.saveSettings();
+              invalidateDiscoveryCache();
+            }),
+        );
+
+      new Setting(containerEl)
+        .setName('最多展示几条推荐')
+        .setDesc('关联推荐列表里最多显示多少条笔记（默认 10）')
+        .addText((text) =>
+          text
+            .setValue(String(this.plugin.settings.discoveryTopK))
+            .onChange(async (value) => {
+              const num = parseInt(value, 10);
+              if (!isNaN(num) && num >= 1 && num <= 50) {
+                this.plugin.settings.discoveryTopK = num;
+                await this.plugin.saveSettings();
+                invalidateDiscoveryCache();
+              }
+            }),
+        );
+    }
 
     this.addDivider(containerEl);
 
