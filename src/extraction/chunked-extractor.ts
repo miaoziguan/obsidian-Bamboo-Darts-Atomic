@@ -16,8 +16,26 @@ import { ProgressTracker } from './progress';
 /** 分段提炼的默认重叠字数 */
 const CHUNK_OVERLAP = 500;
 
-/** 段间请求间隔（ms），避免 API 限流 */
+/** 段间请求间隔（ms），避免 API 限流；可被取消信号中断 */
 const CHUNK_DELAY_MS = 200;
+
+/** 可被 AbortSignal 中断的延迟 */
+function interruptibleDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    if (signal) {
+      const onAbort = () => {
+        clearTimeout(timer);
+        reject(new Error('用户取消了提炼'));
+      };
+      if (signal.aborted) {
+        onAbort();
+        return;
+      }
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+  });
+}
 
 /**
  * 将文本按指定大小分段，段间保留重叠
@@ -92,6 +110,12 @@ export async function extractChunked(
     const chunk = chunks[i];
     const label = `第${i + 1}/${chunks.length}轮`;
 
+    // 每段开始前检查是否已取消，避免取消后仍继续调用 API
+    if (config.signal?.aborted) {
+      tracker.update({ detail: '已取消', status: 'failed' });
+      break;
+    }
+
     tracker.update({ detail: `${label}：处理 ${chunk.length} 字...` });
 
     const result = await extractAtomicNotes(chunk, config);
@@ -110,9 +134,14 @@ export async function extractChunked(
       if (failCount >= 3 && successCount === 0) break;
     }
 
-    // 段间延迟
+    // 段间延迟：可被取消信号中断
     if (i < chunks.length - 1) {
-      await new Promise((resolve) => setTimeout(resolve, CHUNK_DELAY_MS));
+      try {
+        await interruptibleDelay(CHUNK_DELAY_MS, config.signal);
+      } catch {
+        tracker.update({ detail: '已取消', status: 'failed' });
+        break;
+      }
     }
   }
 
