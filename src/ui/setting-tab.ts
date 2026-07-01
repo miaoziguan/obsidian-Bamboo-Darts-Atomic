@@ -171,14 +171,26 @@ export class AtomicNotesSettingTab extends PluginSettingTab {
 
     containerEl.createEl('h2', { text: '原子笔记提炼 设置' });
 
-    // ================================================================
-    // ① API 配置（连接）
-    // ================================================================
+    this.buildApiSection(containerEl);
+    this.buildStorageSection(containerEl);
+    this.buildSemanticSection(containerEl);
+    this.buildContentSection(containerEl);
+    this.buildDiscoverySection(containerEl);
+    this.buildFilterSection(containerEl);
+    this.buildAdvancedSection(containerEl);
+    this.buildPanelSection(containerEl);
+  }
+
+  // ══════════════════════════════════════════
+  // ① API 配置
+  // ══════════════════════════════════════════
+
+  private buildApiSection(containerEl: HTMLElement): void {
     containerEl.createEl('h3', { text: 'API 配置' });
 
     new Setting(containerEl)
       .setName('API Key')
-      .setDesc('你的 API Key（必需）')
+      .setDesc('你的 API Key（必需）。Key 以 AES-256 加密存储到本地，换设备后需重新填写。')
       .addText((text) => {
         text
           .setPlaceholder('sk-...')
@@ -250,10 +262,13 @@ export class AtomicNotesSettingTab extends PluginSettingTab {
       );
 
     this.addDivider(containerEl);
+  }
 
-    // ================================================================
-    // ② 存储配置（输出位置）
-    // ================================================================
+  // ══════════════════════════════════════════
+  // ② 存储配置
+  // ══════════════════════════════════════════
+
+  private buildStorageSection(containerEl: HTMLElement): void {
     containerEl.createEl('h3', { text: '存储配置' });
 
     new Setting(containerEl)
@@ -302,10 +317,13 @@ export class AtomicNotesSettingTab extends PluginSettingTab {
       );
 
     this.addDivider(containerEl);
+  }
 
-    // ================================================================
-    // ③ 语义去重（Beta）— 腾讯混元向量模型
-    // ================================================================
+  // ══════════════════════════════════════════
+  // ③ 语义去重（Beta）
+  // ══════════════════════════════════════════
+
+  private buildSemanticSection(containerEl: HTMLElement): void {
     containerEl.createEl('h3', { text: '语义去重（Beta）' });
 
     const _semToggle = new Setting(containerEl)
@@ -322,7 +340,7 @@ export class AtomicNotesSettingTab extends PluginSettingTab {
     if (this.plugin.settings.enableSemanticDedup) {
       new Setting(containerEl)
         .setName('混元 API Key')
-        .setDesc('腾讯混元 API Key（必需）')
+        .setDesc('腾讯混元 API Key（必需）。同样 AES-256 加密存储，换设备需重填。')
         .addText((text) => {
           text
             .setPlaceholder('sk-...')
@@ -410,10 +428,13 @@ export class AtomicNotesSettingTab extends PluginSettingTab {
     }
 
     this.addDivider(containerEl);
+  }
 
-    // ================================================================
-    // ④ 标签偏好（分类）
-    // ================================================================
+  // ══════════════════════════════════════════
+  // ④ 内容处理（标签 + 链接 + 核查 + 复查）
+  // ══════════════════════════════════════════
+
+  private buildContentSection(containerEl: HTMLElement): void {
     containerEl.createEl('h3', { text: '标签偏好' });
 
     new Setting(containerEl)
@@ -541,7 +562,7 @@ export class AtomicNotesSettingTab extends PluginSettingTab {
 
       new Setting(containerEl)
         .setName('复查 API Key（可选）')
-        .setDesc('复查用 API Key。留空则复用提炼 API Key')
+        .setDesc('复查用 API Key。留空则复用提炼 API Key。同样 AES-256 加密存储。')
         .addText((text) =>
           text
             .setPlaceholder('留空则使用提炼 API Key')
@@ -553,9 +574,14 @@ export class AtomicNotesSettingTab extends PluginSettingTab {
         );
     } // end if enableReview
 
-    // ================================================================
-    // ⑧ 笔记发现（知识发现）
-    // ================================================================
+    this.addDivider(containerEl);
+  }
+
+  // ══════════════════════════════════════════
+  // ⑧ 笔记发现
+  // ══════════════════════════════════════════
+
+  private buildDiscoverySection(containerEl: HTMLElement): void {
     containerEl.createEl('h3', { text: '笔记发现' });
 
     new Setting(containerEl)
@@ -645,10 +671,13 @@ export class AtomicNotesSettingTab extends PluginSettingTab {
     }
 
     this.addDivider(containerEl);
+  }
 
-    // ================================================================
-    // ⑨ 过滤策略
-    // ================================================================
+  // ══════════════════════════════════════════
+  // ⑨ 过滤策略
+  // ══════════════════════════════════════════
+
+  private buildFilterSection(containerEl: HTMLElement): void {
     containerEl.createEl('h3', { text: '过滤策略' });
 
     new Setting(containerEl).setDesc(
@@ -830,10 +859,13 @@ export class AtomicNotesSettingTab extends PluginSettingTab {
     );
 
     this.addDivider(containerEl);
+  }
 
-    // ================================================================
-    // ⑩ 深度提炼
-    // ================================================================
+  // ══════════════════════════════════════════
+  // ⑩ 深度提炼 + 面板设置
+  // ══════════════════════════════════════════
+
+  private buildAdvancedSection(containerEl: HTMLElement): void {
     containerEl.createEl('h3', { text: '深度提炼' });
 
     new Setting(containerEl)
@@ -864,10 +896,13 @@ export class AtomicNotesSettingTab extends PluginSettingTab {
       );
 
     this.addDivider(containerEl);
+  }
 
-    // ================================================================
-    // ⑪ 面板设置
-    // ================================================================
+  // ══════════════════════════════════════════
+  // ⑪ 面板设置
+  // ══════════════════════════════════════════
+
+  private buildPanelSection(containerEl: HTMLElement): void {
     containerEl.createEl('h3', { text: '面板设置' });
 
     new Setting(containerEl)

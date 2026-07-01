@@ -10,6 +10,7 @@
  */
 
 import type { Vault, DataAdapter, TFile } from 'obsidian';
+import { CancellationError } from '../errors';
 import {
   runExtraction,
   ExtractorConfig,
@@ -167,9 +168,12 @@ export class ExtractionService {
 
       return result;
     } catch (error) {
+      // 用户取消：抛出精确的 CancellationError，调用方用 instanceof 判断
       if (error instanceof Error && error.name === 'AbortError') {
-        return { success: false, steps: [], error: '提炼已取消' };
+        throw new CancellationError();
       }
+      // 非取消异常：打印完整堆栈确保 release 构建中编程错误可见
+      console.error('[Bamboo Darts] 提炼异常:', error);
       return {
         success: false,
         steps: [],

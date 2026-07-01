@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { crossCheckBatch, tokenize } from '../src/deduplicator';
+import { crossCheckBatch, tokenize, isPathInFolder, checkAgainstVaultDetailed } from '../src/deduplicator';
+import { Vault } from 'obsidian';
 import { AtomicNote } from '../src/utils/notes-standards';
 
 // ─── 辅助函数 ───
@@ -138,5 +139,119 @@ describe('crossCheckBatch', () => {
       expect(result.duplicates[0].removedContent).toBe(content);
       expect(result.duplicates[0].similarity).toBeGreaterThan(0);
     }
+  });
+});
+
+// ─── isPathInFolder 测试 ───
+
+describe('isPathInFolder', () => {
+  it('文件在目标文件夹内', () => {
+    expect(isPathInFolder('notes/atomic/2024-01.md', 'notes/atomic')).toBe(true);
+  });
+
+  it('文件不在目标文件夹内', () => {
+    expect(isPathInFolder('other/note.md', 'notes/atomic')).toBe(false);
+  });
+
+  it('目标文件夹后跟路径分隔符也能匹配', () => {
+    expect(isPathInFolder('notes/atomic/sub/deep.md', 'notes/atomic/')).toBe(true);
+  });
+
+  it('部分匹配不误判', () => {
+    // notes/atomic-extras 不应匹配 notes/atomic
+    expect(isPathInFolder('notes/atomic-extras/note.md', 'notes/atomic')).toBe(false);
+  });
+
+  it('完全相同的路径', () => {
+    expect(isPathInFolder('notes/atomic/note.md', 'notes/atomic/note.md')).toBe(true);
+  });
+});
+
+// ─── checkAgainstVaultDetailed 测试 ───
+
+describe('checkAgainstVaultDetailed', () => {
+  it('空知识库 → 无匹配', async () => {
+    const vault = new Vault();
+    const notes: AtomicNote[] = [
+      { title: '测试笔记', content: '这是一段测试内容，包含足够长度的文本用于去重比对。' },
+    ];
+
+    const results = await checkAgainstVaultDetailed(vault, notes, '');
+    expect(results.length).toBe(1);
+    expect(results[0].bestMatch).toBeNull();
+  });
+
+  it('完全相同的笔记被检测为重复', async () => {
+    const vault = new Vault();
+    const content = '机器学习是人工智能的核心分支，通过算法从数据中自动学习模式和规律，深度学习在其中扮演着关键角色。';
+    vault.addFile('existing/note1.md', `# 机器学习\n\n${content}`);
+
+    const notes: AtomicNote[] = [
+      { title: '机器学习', content },
+    ];
+
+    const results = await checkAgainstVaultDetailed(vault, notes, 'existing');
+    expect(results.length).toBe(1);
+    // 相同内容应被匹配到
+    expect(results[0].bestMatch).not.toBeNull();
+  });
+
+  it('完全不同的笔记无匹配', async () => {
+    const vault = new Vault();
+    vault.addFile(
+      'existing/recipe.md',
+      '# 红烧肉\n\n红烧肉制作关键在于火候控制，五花肉焯水去血沫，冰糖炒色，加酱油料酒慢炖。',
+    );
+
+    const notes: AtomicNote[] = [
+      { title: '深度学习', content: 'Transformer架构通过自注意力机制彻底改变了自然语言处理的范式。' },
+    ];
+
+    const results = await checkAgainstVaultDetailed(vault, notes, 'existing');
+    expect(results.length).toBe(1);
+    expect(results[0].bestMatch).toBeNull();
+  });
+
+  it('多条笔记中混合匹配', async () => {
+    const vault = new Vault();
+    const content = '深度学习TensorFlow框架PyTorch在计算机视觉和自然语言处理NLP领域取得了突破性进展Transformer架构效果显著。';
+    vault.addFile('notes/ml.md', `# ML\n\n${content}`);
+
+    const notes: AtomicNote[] = [
+      {
+        title: '视觉与语言',
+        content, // 与 ml.md 完全一致
+      },
+      {
+        title: '芯片制造',
+        content: '先进制程芯片采用极紫外光刻技术晶体管密度大幅提升半导体产业链加速迭代摩尔定律面临挑战。',
+      },
+    ];
+
+    const results = await checkAgainstVaultDetailed(vault, notes, 'notes');
+    expect(results.length).toBe(2);
+    // 第一条完全一致应匹配
+    expect(results[0].bestMatch).not.toBeNull();
+    // 第二条完全不同
+    expect(results[1].bestMatch).toBeNull();
+  });
+
+  it('不同文件夹的笔记互不干扰', async () => {
+    const vault = new Vault();
+    const content = '机器学习人工智能深度学习神经网络Transformer架构自注意力机制大型预训练模型';
+    vault.addFile('folderA/note.md', `# Note A\n\n${content}`);
+    vault.addFile('folderB/note.md', '# Note B\n\n完全不同不相关话题美食烹饪文化历史地理旅行摄影音乐');
+
+    const notes: AtomicNote[] = [
+      { title: 'A-like', content },
+    ];
+
+    // 只查 folderB → A中笔记不应干扰
+    const resultsB = await checkAgainstVaultDetailed(vault, notes, 'folderB');
+    expect(resultsB[0].bestMatch).toBeNull();
+
+    // 查 folderA → 应匹配
+    const resultsA = await checkAgainstVaultDetailed(vault, notes, 'folderA');
+    expect(resultsA[0].bestMatch).not.toBeNull();
   });
 });

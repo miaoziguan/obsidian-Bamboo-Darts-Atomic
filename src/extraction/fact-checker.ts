@@ -11,6 +11,7 @@ import {
   VerifiableClaim,
 } from '../utils/data-extractor';
 import { parseJsonArrayFromAI } from '../utils/json-parser';
+import type { ApiConfig } from '../extractor';
 
 /** 空白规范化：合并连续空格/换行/制表符为单个空格，去除首尾空白 */
 function normalizeWS(s: string): string {
@@ -44,11 +45,7 @@ interface ClaimWithContext {
 export async function verifyClaims(
   truncatedContent: string,
   notes: AtomicNote[],
-  config: {
-    deepseekApiKey: string;
-    deepseekApiUrl: string;
-    model?: string;
-    maxTokens?: number;
+  config: Pick<ApiConfig, 'deepseekApiKey' | 'deepseekApiUrl' | 'model' | 'maxTokens'> & {
     signal?: AbortSignal;
   },
   /** 原始全文（Layer 1 溯源用），默认等同 truncatedContent */
@@ -195,11 +192,7 @@ export async function verifyClaims(
 async function semanticCompare(
   originalContent: string,
   unmatched: ClaimWithContext[],
-  config: {
-    deepseekApiKey: string;
-    deepseekApiUrl: string;
-    model?: string;
-    maxTokens?: number;
+  config: Pick<ApiConfig, 'deepseekApiKey' | 'deepseekApiUrl' | 'model' | 'maxTokens'> & {
     signal?: AbortSignal;
   },
 ): Promise<

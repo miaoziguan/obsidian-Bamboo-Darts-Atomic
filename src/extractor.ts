@@ -53,33 +53,21 @@ function getProviderLabel(apiUrl: string): string {
   return 'AI';
 }
 
-/** 笔记内容指纹（FNV-1a 哈希，防碰撞能力远强于 length:prefix） */
-function noteFingerprint(note: AtomicNote): string {
-  return `${note.content.length}:${fnv1aHash(note.content.slice(0, 200))}`;
-}
-
 /**
  * 重映射 vaultDedupPending 的 newNoteIndex
- * 过滤笔记后，pending 笔记在新数组中的位置可能变化，需要更新索引。
- * 使用内容指纹匹配，避免标题冲突。
+ * 过滤笔记后，pending 笔记在新数组中的位置可能变化。
+ * 使用 noteId 精确匹配，替代原来的内容指纹匹配。
  */
 function remapPendingDuplicates(
   notes: AtomicNote[],
   pending: PendingDuplicate[],
 ): PendingDuplicate[] {
-  const postIndexMap = new Map<string, number>();
-  notes.forEach((note, idx) => postIndexMap.set(noteFingerprint(note), idx));
+  const idToIndex = new Map<string, number>();
+  notes.forEach((note, idx) => idToIndex.set(note.id, idx));
 
   return pending
-    .filter((p) => {
-      // 构造临时 AtomicNote 以复用 noteFingerprint
-      const key = `${p.newNoteContent.length}:${fnv1aHash(p.newNoteContent.slice(0, 200))}`;
-      return postIndexMap.has(key);
-    })
-    .map((p) => {
-      const key = `${p.newNoteContent.length}:${fnv1aHash(p.newNoteContent.slice(0, 200))}`;
-      return { ...p, newNoteIndex: postIndexMap.get(key)! };
-    });
+    .filter((p) => idToIndex.has(p.noteId))
+    .map((p) => ({ ...p, newNoteIndex: idToIndex.get(p.noteId)! }));
 }
 
 /** 取消检查：若已取消，标记 tracker 并返回结果；否则返回 null */
@@ -170,6 +158,7 @@ async function runVaultDedupPhase(
         matchedNote: info.bestMatch.path,
         matchedContent: info.bestMatch.content,
         newNoteIndex: info.noteIndex,
+        noteId: info.note.id,
         newNoteTitle: info.note.title,
         newNoteContent: info.note.content,
         highSimilarity: true,
@@ -184,6 +173,7 @@ async function runVaultDedupPhase(
         matchedNote: info.bestMatch.path,
         matchedContent: info.bestMatch.content,
         newNoteIndex: info.noteIndex,
+        noteId: info.note.id,
         newNoteTitle: info.note.title,
         newNoteContent: info.note.content,
         semanticSimilarity: info.semanticSimilarity,
@@ -327,48 +317,61 @@ async function runReviewPhase(
   return { notes, vaultDedupPending, reviewDetails: reviewResult.reviewDetails };
 }
 
-export interface ExtractorConfig {
+// ─── 子接口：将上帝配置对象拆分为语义清晰的独立接口 ───
+
+/** API 凭证与模型配置 */
+export interface ApiConfig {
   deepseekApiKey: string;
   deepseekApiUrl: string;
   model: string;
   maxTokens: number;
+  reviewModel: string;
+  reviewApiUrl: string;
+  reviewApiKey: string;
+}
+
+/** 管线运行时上下文（由调用方注入，非持久化配置） */
+export interface PipelineRuntime {
+  signal?: AbortSignal;
+  vault?: Vault;
+  targetFolder?: string;
+  onProgress?: ProgressCallback;
+  abortController?: AbortController;
+}
+
+/** 知识库去重配置 */
+export interface DedupConfig {
+  dedupTargetFolder?: string;
+  enableVaultDedup?: boolean;
+  semanticManager?: SemanticDedupManager;
+}
+
+/** 提炼策略与行为配置 */
+export interface ProfileSettings {
   tagPreferences: string[];
   tagMode: 'lenient' | 'strict';
   factCheck: boolean;
   verifiedOnly: boolean;
   enableReview: boolean;
-  reviewModel: string;
-  reviewApiUrl: string;
-  reviewApiKey: string;
-  signal?: AbortSignal;
-  // 知识库去重相关
-  vault?: Vault;
-  targetFolder?: string;
-  /** 去重比对专用文件夹，留空则复用 targetFolder */
-  dedupTargetFolder?: string;
-  enableVaultDedup?: boolean;
-  // 进度回调
-  onProgress?: ProgressCallback;
-  // Profile 策略
-  profile?: ContentProfile;
   autoClassify?: boolean;
+  profile?: ContentProfile;
   profileConfigs?: Partial<Record<ContentProfile, Partial<ProfileConfig>>>;
-  // 深度提炼
   enableDeepMode?: boolean;
-  // 跳过了门控（强制提炼）
   skipGate?: boolean;
-  /** 输入文本截断长度（覆盖默认常量） */
   inputTruncateLength?: number;
-  /** 语义去重管理器实例（由 main.ts 创建并传入） */
-  semanticManager?: SemanticDedupManager;
-  /**
-   * 关联的 AbortController（由调用方创建）。
-   * 用于在超时或用户取消时中止整个提炼管线。
-   * signal 字段由 abortController.signal 派生，二者同时提供。
-   */
-  abortController?: AbortController;
-  // URL 提取的标题和发布时间（由 readContent 填充，传给 AI prompt）
+}
+
+/**
+ * 完整提炼配置（组合上述子接口 + 动态元数据）
+ *
+ * 新代码应优先使用子接口（ApiConfig / PipelineRuntime / DedupConfig / ProfileSettings），
+ * ExtractorConfig 保留向后兼容，逐步迁移。
+ */
+export interface ExtractorConfig extends ApiConfig, PipelineRuntime, DedupConfig, ProfileSettings {
+  // ── 动态元数据（非持久化配置）──
+  /** URL 提取的标题（由 readContent 填充，传给 AI prompt） */
   urlTitle?: string;
+  /** URL 提取的发布时间（由 readContent 填充） */
   urlPublishDate?: string;
 }
 
@@ -637,7 +640,10 @@ export interface PendingDuplicate {
   similarity: number;
   matchedNote: string;
   matchedContent: string;
+  /** @deprecated 使用 noteId 替代数组下标引用，newNoteIndex 保留向后兼容 */
   newNoteIndex: number;
+  /** 笔记唯一 ID，用于跨阶段精确引用（替代 newNoteIndex） */
+  noteId: string;
   newNoteTitle: string;
   newNoteContent: string;
   /** 是否为高相似度（>= vaultHighThreshold），用于 UI 红色警示 */

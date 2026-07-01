@@ -22,6 +22,8 @@ export interface VerificationItem {
 }
 
 export interface AtomicNote {
+  /** 唯一标识，用于跨阶段引用（替代数组下标） */
+  id: string;
   title: string;
   content: string;
   source?: string;
@@ -31,6 +33,12 @@ export interface AtomicNote {
   tracedCount?: number;
   needsCompareCount?: number;
   outOfScopeCount?: number;
+}
+
+/** 自增计数器，为 AtomicNote 生成简易唯一 ID */
+let _noteIdCounter = 0;
+export function genNoteId(): string {
+  return `n_${Date.now().toString(36)}_${(_noteIdCounter++).toString(36)}`;
 }
 
 /** 预编译的正则表达式（优化性能，避免重复编译） */
@@ -301,6 +309,7 @@ function jsonNoteToAtomicNote(item: JsonNoteInput): AtomicNote {
       : undefined;
 
   return {
+    id: genNoteId(),
     title: item.title ? stripQuotes(item.title) : '',
     content: item.content ? stripQuotes(item.content) : '',
     source: item.source ? stripQuotes(item.source) : undefined,
@@ -350,6 +359,7 @@ function tryParseFrontmatterFormat(text: string): AtomicNote[] {
     const bodyBlock = match[2]; // 正文内容
 
     const note: AtomicNote = {
+      id: genNoteId(),
       title: '',
       content: '',
       createdAt: new Date().toISOString(),
@@ -404,6 +414,7 @@ function tryParseFrontmatterFallback(text: string): AtomicNote[] {
     if (!block || block === '---') continue;
 
     const note: AtomicNote = {
+      id: genNoteId(),
       title: '',
       content: '',
       createdAt: new Date().toISOString(),
@@ -473,6 +484,7 @@ function tryParseListFormat(text: string): AtomicNote[] {
     if (!trimmed) continue;
 
     const note: AtomicNote = {
+      id: genNoteId(),
       title: '',
       content: '',
       createdAt: new Date().toISOString(),

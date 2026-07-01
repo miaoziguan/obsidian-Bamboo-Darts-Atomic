@@ -10,6 +10,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ExtractionService, ExtractionSettingsSnapshot } from '../src/services/extraction-service';
 import { computeSourceHash } from '../src/services/history-service';
+import { CancellationError } from '../src/errors';
 import type { ExtractionResult } from '../src/extractor';
 
 // ─── mock extractor 管线 ───
@@ -241,15 +242,15 @@ describe('ExtractionService', () => {
   // ── 管线异常处理 ──
 
   describe('管线异常处理', () => {
-    it('管线抛出 AbortError 时返回取消结果', async () => {
+    it('管线抛出 AbortError 时抛出 CancellationError', async () => {
       const settings = makeSettings();
       const abortError = new Error('aborted');
       abortError.name = 'AbortError';
       mockRunExtraction.mockRejectedValueOnce(abortError);
 
-      const result = await service.extract({ type: 'text', content: 'test' }, settings);
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('取消');
+      await expect(
+        service.extract({ type: 'text', content: 'test' }, settings),
+      ).rejects.toThrow(CancellationError);
     });
 
     it('管线抛出其他错误时返回错误结果', async () => {
@@ -284,9 +285,7 @@ describe('ExtractionService', () => {
       // 立刻取消
       service.cancel();
 
-      const result = await promise;
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('取消');
+      await expect(promise).rejects.toThrow(CancellationError);
     });
 
     it('没有在提炼时调用 cancel 不报错', () => {
@@ -359,8 +358,7 @@ describe('ExtractionService', () => {
       const promise = service.extract({ type: 'text', content: 'test' }, settings);
       service.dispose();
 
-      const result = await promise;
-      expect(result.success).toBe(false);
+      await expect(promise).rejects.toThrow(CancellationError);
     });
   });
 

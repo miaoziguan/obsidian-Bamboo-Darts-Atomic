@@ -16,6 +16,12 @@ export default defineConfig({
         'src/ui/**',
         'src/types.ts',
       ],
+      thresholds: {
+        lines: 75,
+        branches: 75,
+        functions: 75,
+        statements: 75,
+      },
     },
   },
   resolve: {

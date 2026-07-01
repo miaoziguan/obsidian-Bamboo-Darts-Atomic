@@ -30,6 +30,8 @@ import {
   ExtractionService,
   ExtractionSettingsSnapshot,
 } from './services/extraction-service';
+import { CancellationError } from './errors';
+import { encryptApiKey, decryptApiKey } from './utils/crypto-store';
 
 /** 友好化常见的 API 错误信息 */
 function friendlyError(error: unknown): string {
@@ -264,6 +266,20 @@ export default class AtomicNotesPlugin extends Plugin {
         this.settings.settingsVersion = 3;
         await this.saveSettings();
       }
+
+      // 解密 API Key（兼容旧明文格式）
+      let needsReEncrypt = false;
+      for (const field of ['deepseekApiKey', 'hunyuanApiKey', 'reviewApiKey'] as const) {
+        const stored = this.settings[field] as string | undefined;
+        if (stored && !stored.startsWith('enc:')) {
+          needsReEncrypt = true; // 旧明文 → 需要升级加密
+        }
+        const decrypted = decryptApiKey(stored);
+        if (decrypted !== null) (this.settings as any)[field] = decrypted;
+      }
+      if (needsReEncrypt) {
+        await this.saveSettings();
+      }
     } catch (e) {
       console.warn('[Bamboo Darts] 设置加载失败，使用默认值:', e);
       this.settings = Object.assign({}, DEFAULT_SETTINGS);
@@ -271,7 +287,13 @@ export default class AtomicNotesPlugin extends Plugin {
   }
 
   async saveSettings() {
-    await this.saveData(this.settings);
+    // 加密 API Key 再写入磁盘（内存保持明文，前端无感知）
+    await this.saveData({
+      ...this.settings,
+      deepseekApiKey: encryptApiKey(this.settings.deepseekApiKey),
+      hunyuanApiKey: encryptApiKey(this.settings.hunyuanApiKey || ''),
+      reviewApiKey: encryptApiKey(this.settings.reviewApiKey || ''),
+    });
   }
 
   /** 将当前设置转换为 ExtractionSettingsSnapshot */
@@ -464,15 +486,12 @@ export default class AtomicNotesPlugin extends Plugin {
         }).open();
       }
     } catch (error) {
-      // 取消有两种路径：
-      // 1. checkAborted 返回结果 → 已在上方 result.success 分支处理
-      // 2. abortController.abort() → requestUrl 抛异常，走到这里
-      const errMsg = error instanceof Error ? error.message : String(error);
+      // 精确判断取消：
+      // 1. CancellationError：ExtractionService 中 AbortError 重新抛出
+      // 2. AbortError：requestUrl 等底层操作直接抛出的取消信号
       const isCancel =
-        (error instanceof Error && error.name === 'AbortError') ||
-        errMsg.includes('用户取消了提炼') ||
-        errMsg.toLowerCase().includes('cancel') ||
-        errMsg.toLowerCase().includes('abort');
+        error instanceof CancellationError ||
+        (error instanceof Error && error.name === 'AbortError');
       if (isCancel) {
         new Notice('提炼已取消');
         return;
